@@ -50,7 +50,7 @@ dependencies:
   - typing-extensions
 
   # Device select
-  - nvidia/label/cuda-11.7.1::cuda-toolkit = 11.7
+#  - nvidia/label/cuda-11.7.1::cuda-toolkit = 11.7
 
   # Documentation
   - sphinx
