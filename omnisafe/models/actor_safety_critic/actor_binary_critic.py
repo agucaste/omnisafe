@@ -120,18 +120,20 @@ class ActorBinaryCritic(ConstraintActorQCritic):
                 safety_index = torch.tensor(self.cost_critic.forward(obs=obs, act=a)).mean()
                 if safety_index < .5:
                     # found a safe action
+                    print(f'safety index is {safety_index}')
                     return a
                 else:
                     # keep looking
                     actions.append(a)
                     safety_values.append(safety_index)
-            # No actions were found to be safe, grab the safest one.
-            actions = torch.tensor(actions)
-            safety_values = torch.tensor(safety_values)
+        # No actions were found to be safe, grab the safest one.
+        # print(f'actions are {actions}, of type {type(actions)}')
+        actions = torch.stack(actions)
+        safety_values = torch.tensor(safety_values)
 
-            safest_a = actions[torch.argmin(safety_values)]
-            print(f'safest action is {safest_a}')
-            return safest_a
+        safest_a = actions[torch.argmin(safety_values)]
+        print(f'safest action is {safest_a}')
+        return safest_a
 
     def polyak_update(self, tau: float) -> None:
         """Update the target network with polyak averaging.
