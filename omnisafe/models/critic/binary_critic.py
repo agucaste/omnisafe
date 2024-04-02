@@ -75,6 +75,8 @@ class BinaryCritic(Critic):
         weight_initialization_mode: InitFunction = 'kaiming_uniform',
         num_critics: int = 1,
         use_obs_encoder: bool = False,
+
+        max_resamples: int = 100  # Number of 'resamples' when encountering unsafe actions by the actor
     ) -> None:
         """Initialize an instance of :class:`QCritic`."""
         super().__init__(
@@ -112,6 +114,8 @@ class BinaryCritic(Critic):
                 critic = nn.Sequential(net)
             self.net_lst.append(critic)
             self.add_module(f'critic_{idx}', critic)
+
+        self.max_resamples = max_resamples
 
     def forward(
         self,

@@ -56,6 +56,8 @@ class CriticBuilder:
         weight_initialization_mode: InitFunction = 'kaiming_uniform',
         num_critics: int = 1,
         use_obs_encoder: bool = False,
+
+        max_resamples: int = 100
     ) -> None:
         """Initialize an instance of :class:`CriticBuilder`."""
         self._obs_space: OmnisafeSpace = obs_space
@@ -65,6 +67,8 @@ class CriticBuilder:
         self._hidden_sizes: list[int] = hidden_sizes
         self._num_critics: int = num_critics
         self._use_obs_encoder: bool = use_obs_encoder
+
+        self._max_resamples: int = max_resamples
 
     def build_critic(
         self,
@@ -112,6 +116,7 @@ class CriticBuilder:
                 weight_initialization_mode=self._weight_initialization_mode,
                 num_critics=self._num_critics,
                 use_obs_encoder=self._use_obs_encoder,
+                max_resamples=self._max_resamples
             )
 
         raise NotImplementedError(

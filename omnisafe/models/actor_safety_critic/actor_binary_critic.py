@@ -75,9 +75,14 @@ class ActorBinaryCritic(ConstraintActorQCritic):
             hidden_sizes=model_cfgs.critic.hidden_sizes,
             activation=model_cfgs.critic.activation,
             weight_initialization_mode=model_cfgs.weight_initialization_mode,
-            num_critics=1,
+            num_critics=model_cfgs.cost_critic.num_critics,
             use_obs_encoder=False,
         ).build_critic('b')
+
+        # TODO: find a way to implement self.cost_critic.max_resamples.
+        print(f'max resample value for the binary critic is is {model_cfgs.cost_critic.max_resamples}')
+        self.cost_critic.max_resamples = model_cfgs.cost_critic.max_resamples
+
         self.target_cost_critic: Critic = deepcopy(self.cost_critic)
         for param in self.target_cost_critic.parameters():
             param.requires_grad = False
@@ -104,11 +109,14 @@ class ActorBinaryCritic(ConstraintActorQCritic):
         """
         actions = []
         safety_values = []
-        for _ in range(100):
+        # print('resampling ')
+        for i in range(self.cost_critic.max_resamples):
+            print(f'resampling {i} out of {self.cost_critic.max_resamples}')
             with torch.no_grad():
                 # pick an action
                 a = self.actor.predict(obs, deterministic=deterministic)
                 # get the safety values (list, as many outputs as num_critics).
+                print(f'predicted action is {a}')
                 safety_index = torch.tensor(self.cost_critic.forward(obs=obs, act=a)).mean()
                 if safety_index < .5:
                     # found a safe action
@@ -122,6 +130,7 @@ class ActorBinaryCritic(ConstraintActorQCritic):
             safety_values = torch.tensor(safety_values)
 
             safest_a = actions[torch.argmin(safety_values)]
+            print(f'safest action is {safest_a}')
             return safest_a
 
     def polyak_update(self, tau: float) -> None:
