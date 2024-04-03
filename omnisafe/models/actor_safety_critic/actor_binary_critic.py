@@ -111,28 +111,34 @@ class ActorBinaryCritic(ConstraintActorQCritic):
         safety_values = []
         # print('resampling ')
         for i in range(self.cost_critic.max_resamples):
-            print(f'resampling {i} out of {self.cost_critic.max_resamples}')
+            # print(f'resampling {i} out of {self.cost_critic.max_resamples}')
             with torch.no_grad():
                 # pick an action
+                # print(f'deterministic is set to {deterministic}')
                 a = self.actor.predict(obs, deterministic=deterministic)
+                # if not deterministic:
+                    # print('not being deterministic')
+                # a = torch.as_tensor(self._env.sample_action(), dtype=torch.float32).to(
+                #     self._device,
+                # )
                 # get the safety values (list, as many outputs as num_critics).
-                print(f'predicted action is {a}')
-                safety_index = torch.tensor(self.cost_critic.forward(obs=obs, act=a)).mean()
-                if safety_index < .5:
-                    # found a safe action
-                    print(f'safety index is {safety_index}')
-                    return a
-                else:
-                    # keep looking
-                    actions.append(a)
-                    safety_values.append(safety_index)
+                # print(f'predicted action is {a}')
+                safety_index = self.cost_critic.assess_safety(obs, a)
+            # print(f'safety index is {safety_index}')
+            if safety_index < .5:
+                # found a safe action
+                return a
+            else:
+                # keep looking
+                actions.append(a)
+                safety_values.append(safety_index)
         # No actions were found to be safe, grab the safest one.
         # print(f'actions are {actions}, of type {type(actions)}')
         actions = torch.stack(actions)
-        safety_values = torch.tensor(safety_values)
+        safety_values = torch.stack(safety_values)
 
         safest_a = actions[torch.argmin(safety_values)]
-        print(f'safest action is {safest_a}')
+        # print(f'safest action is {safest_a}')
         return safest_a
 
     def polyak_update(self, tau: float) -> None:

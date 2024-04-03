@@ -143,3 +143,21 @@ class BinaryCritic(Critic):
             else:
                 res.append(torch.squeeze(critic(torch.cat([obs, act], dim=-1)), -1))
         return res
+
+    def assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        """
+        Given an observation, assesses its safety from "safe" (0) to "unsafe" (1)
+        by checking the mean value across all binary critics.
+
+        This method is to be used in conjunction with step.
+
+        Args:
+            obs (torch.tensor): The observation from environments.
+            a (torch.tensor): The candidate action by the actor.
+
+        Returns:
+            safety_index (torch.tensor): a value in [0, 1], denoting how unsafe the action is.
+        """
+        safety_index = torch.stack(self.forward(obs=obs, act=a)).mean(dim=0)
+        # print(f"Safety index has shape: {safety_index.shape}")
+        return safety_index

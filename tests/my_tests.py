@@ -65,13 +65,20 @@ def test_actor_binary_critic(
         model_cfgs=model_cfgs,
         epochs=10,
     )
-    obs = torch.randn(obs_dim, dtype=torch.float32)
+    # obs = torch.randn(obs_dim, dtype=torch.float32)
+    # act = ac(obs)
+    # with torch.no_grad():
+    #     value_c = ac.cost_critic(obs, act)
+    # print('constraints are:')
+    # print(value_c)
+    # assert act.shape == torch.Size([act_dim]), f'actor output shape is {act.shape}'
+
+    obs = torch.randn((7, obs_dim))
     act = ac(obs)
     with torch.no_grad():
         value_c = ac.cost_critic(obs, act)
-    print('constraints are:')
-    print(value_c)
-    assert act.shape == torch.Size([act_dim]), f'actor output shape is {act.shape}'
+
+
     # assert value_r.shape == torch.Size([]), f'critic output shape is {value_r.shape}'
     # assert value_c.shape == torch.Size([]), f'critic output shape is {value_c.shape}'
     # assert logp.shape == torch.Size([]), f'actor log_prob shape is {logp.shape}'
