@@ -1,3 +1,3 @@
-from omnisafe.algorithms.my_algorithms.static_binary_critic import StaticBinaryCritic
+from omnisafe.algorithms.my_algorithms.off_policy_static_binary_critic import OffPolicyStaticBinaryCritic
 
-__all__ = ['StaticBinaryCritic']
+__all__ = ['OffPolicyStaticBinaryCritic']

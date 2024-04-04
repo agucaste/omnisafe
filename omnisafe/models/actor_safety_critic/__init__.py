@@ -1,1 +1,1 @@
-from omnisafe.models.actor_safety_critic.actor_binary_critic import ActorBinaryCritic
+from omnisafe.models.actor_safety_critic.actor_q_critic_binary_critic import ActorQCriticBinaryCritic

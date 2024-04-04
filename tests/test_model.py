@@ -57,6 +57,7 @@ def test_critic(
     act = torch.randn(act_dim, dtype=torch.float32)
     q_critic = builder.build_critic(critic_type='q')
     v_critic = builder.build_critic(critic_type='v')
+    b_critic = builder.build_critic(critic_type='b')
     with pytest.raises(NotImplementedError):
         builder.build_critic(critic_type='invalid')
 
@@ -157,6 +158,7 @@ def test_actor_critic(
     )
     obs = torch.randn(obs_dim, dtype=torch.float32)
     act, value, logp = ac(obs)
+    print(act, value, logp)
     assert act.shape == torch.Size([act_dim]), f'actor output shape is {act.shape}'
     assert value.shape == torch.Size([]), f'critic output shape is {value.shape}'
     assert logp.shape == torch.Size([]), f'actor log_prob shape is {logp.shape}'

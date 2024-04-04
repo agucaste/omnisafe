@@ -29,12 +29,12 @@ from omnisafe.algorithms.base_algo import BaseAlgo
 from omnisafe.common.buffer import VectorOffPolicyBuffer
 from omnisafe.common.logger import Logger
 from omnisafe.models.actor_critic.actor_q_critic import ActorQCritic
-from omnisafe.models.actor_safety_critic import ActorBinaryCritic
+from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic
 
 
 @registry.register
 # pylint: disable-next=too-many-instance-attributes,too-few-public-methods
-class StaticBinaryCritic(BaseAlgo):
+class OffPolicyStaticBinaryCritic(BaseAlgo):
     """
     Uniform Binary Critic algorithm.
     Modified from base implementation of DDPG.
@@ -102,7 +102,7 @@ class StaticBinaryCritic(BaseAlgo):
         # """
         print(f"initializing binary safety critic with "
               f"num_critics = {self._cfgs.model_cfgs.cost_critic['num_critics']}")
-        self._actor_critic: ActorBinaryCritic = ActorBinaryCritic(
+        self._actor_critic: ActorQCriticBinaryCritic = ActorQCriticBinaryCritic(
             obs_space=self._env.observation_space,
             act_space=self._env.action_space,
             model_cfgs=self._cfgs.model_cfgs,

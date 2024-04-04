@@ -26,10 +26,9 @@ from omnisafe.typing import OmnisafeSpace
 from omnisafe.utils.config import ModelConfig
 
 
-class ActorBinaryCritic(ConstraintActorQCritic):
-    """ConstraintActorQCritic is a wrapper around ActorCritic that adds a cost critic to the model.
-
-    In OmniSafe, we combine the actor and critic into one this class.
+class ActorQCriticBinaryCritic(ConstraintActorQCritic):
+    """
+    ActorQCriticBinaryCritic wraps around ConstraintActorQCritic.
 
     +-----------------+---------------------------------------------------+
     | Model           | Description                                       |
@@ -38,7 +37,7 @@ class ActorBinaryCritic(ConstraintActorQCritic):
     +-----------------+---------------------------------------------------+
     | Reward Q Critic | Input is obs-action pair, Output is reward value. |
     +-----------------+---------------------------------------------------+
-    | Cost Q Critic   | Input is obs-action pair. Output is cost value.   |
+    | Binary Q Critic | Input is obs-action pair. Output is cost value.   |
     +-----------------+---------------------------------------------------+
 
     Args:
@@ -97,7 +96,7 @@ class ActorBinaryCritic(ConstraintActorQCritic):
     def step(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         """Choose the action based on the observation. used in rollout without gradient.
 
-        Actions are 'filtered out' by the binary_critic: only actions
+        Actions are 'filtered out' by the binary_critic according to "pick_safe_action"
 
         Args:
             obs (torch.tensor): The observation from environments.
@@ -107,22 +106,34 @@ class ActorBinaryCritic(ConstraintActorQCritic):
             The deterministic action if deterministic is True.
             Action with noise other wise.
         """
+        a = self.pick_safe_action(obs, deterministic)
+        return a
+
+    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+        """Pick a 'safe' action based on the observation.
+        Actor proposes a candidate action.
+            - if it is safe (measured by critics) it gets returned.
+            - If it is not, actor resamples an action.
+        This process ends when:
+            - a safe action is found, or
+            - after a number of steps given by max_resamples.
+        In the latter case, the "safest" among the unsafe actions is returned.
+
+        Args:
+            obs (torch.tensor): The observation from environments.
+            deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
+
+        Returns:
+            A candidate safe action, or the safest action among the samples.
+        """
         actions = []
         safety_values = []
         # print('resampling ')
         for i in range(self.cost_critic.max_resamples):
-            # print(f'resampling {i} out of {self.cost_critic.max_resamples}')
+            print(f'resampling {i} out of {self.cost_critic.max_resamples}')
             with torch.no_grad():
-                # pick an action
-                # print(f'deterministic is set to {deterministic}')
+                # pick an unfiltered action
                 a = self.actor.predict(obs, deterministic=deterministic)
-                # if not deterministic:
-                    # print('not being deterministic')
-                # a = torch.as_tensor(self._env.sample_action(), dtype=torch.float32).to(
-                #     self._device,
-                # )
-                # get the safety values (list, as many outputs as num_critics).
-                # print(f'predicted action is {a}')
                 safety_index = self.cost_critic.assess_safety(obs, a)
             # print(f'safety index is {safety_index}')
             if safety_index < .5:
@@ -132,14 +143,13 @@ class ActorBinaryCritic(ConstraintActorQCritic):
                 # keep looking
                 actions.append(a)
                 safety_values.append(safety_index)
-        # No actions were found to be safe, grab the safest one.
-        # print(f'actions are {actions}, of type {type(actions)}')
+        # No safe actions were found, pick the "safest" among all.
         actions = torch.stack(actions)
         safety_values = torch.stack(safety_values)
 
-        safest_a = actions[torch.argmin(safety_values)]
+        a = actions[torch.argmin(safety_values)]
         # print(f'safest action is {safest_a}')
-        return safest_a
+        return a
 
     def polyak_update(self, tau: float) -> None:
         """Update the target network with polyak averaging.

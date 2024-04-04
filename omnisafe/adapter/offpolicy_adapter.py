@@ -131,6 +131,7 @@ class OffPolicyAdapter(OnlineAdapter):
                 )
             else:
                 act = agent.step(self._current_obs, deterministic=False)
+            print(f'action is {act}, of shape {act.shape}')
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
 
             self._log_value(reward=reward, cost=cost, info=info)
@@ -173,6 +174,7 @@ class OffPolicyAdapter(OnlineAdapter):
         self._ep_ret += info.get('original_reward', reward).cpu()
         self._ep_cost += info.get('original_cost', cost).cpu()
         self._ep_len += 1
+        print(f'episode returns are {self._ep_ret}')
 
     def _log_metrics(self, logger: Logger, idx: int) -> None:
         """Log metrics, including ``EpRet``, ``EpCost``, ``EpLen``.
@@ -188,6 +190,7 @@ class OffPolicyAdapter(OnlineAdapter):
                 'Metrics/EpLen': self._ep_len[idx],
             },
         )
+
 
     def _reset_log(self, idx: int | None = None) -> None:
         """Reset the episode return, episode cost and episode length.
