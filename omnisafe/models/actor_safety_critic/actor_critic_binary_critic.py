@@ -159,7 +159,7 @@ class ActorCriticBinaryCritic(ActorCritic):
         safety_values = []
         # print('resampling ')
         for i in range(self.cost_critic.max_resamples):
-            print(f'resampling {i} out of {self.cost_critic.max_resamples}')
+            # print(f'resampling {i} out of {self.cost_critic.max_resamples}')
             with torch.no_grad():
                 # pick an unfiltered action
                 a = self.actor.predict(obs, deterministic=deterministic)

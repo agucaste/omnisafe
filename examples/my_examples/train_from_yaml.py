@@ -19,7 +19,7 @@ import omnisafe
 if __name__ == '__main__':
     env_id = 'SafetyPointCircle1-v0'
 
-    agent = omnisafe.Agent('OffPolicyStaticBinaryCritic', env_id)
+    agent = omnisafe.Agent('TRPOBinaryCritic', env_id)
     agent.learn()
 
     agent.plot(smooth=1)
