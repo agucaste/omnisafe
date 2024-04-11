@@ -33,20 +33,18 @@ from omnisafe.utils.tools import (
     set_param_values_to_model,
 )
 from omnisafe.models.actor_safety_critic import ActorCriticBinaryCritic
-from omnisafe.adapter import OnOffPolicyAdapter
+from omnisafe.algorithms.my_algorithms import TRPOBinaryCritic
 
 
 @registry.register
-class TRPOBinaryCritic(TRPO):
+class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
     """
     A combination of TRPO with a BinaryCritic as cost_critic.
         - On-policy rollouts are collected in the same way as TRPO.
         - binary_critic update is via minimizing binary cross-entropy loss across the collected rollout.
+        - Actor in TRPO
 
     Modifications:
-        - _init_model: initializes the ActorCriticBinaryCritic
-        - _init_env: initializes the environment as an OnOffPolicyAdapter.
-        - _init: initializes the buffer to store safety_indices and num_resamples.
         - _update (taken from natural_pg)
             - our cost critic is: (s, a) -> [NN] -> b(s,a) network (instead of: (s) -> [NN] -> b(s)),
                 therefore the _update method is modified so as to "pass" actions to
@@ -55,87 +53,18 @@ class TRPOBinaryCritic(TRPO):
 
     """
 
-    def _init(self) -> None:
-        """The initialization of the algorithm.
-
-        User can define the initialization of the algorithm by inheriting this method.
-
-        Examples:
-            >>> def _init(self) -> None:
-            ...     super()._init()
-            ...     self._buffer = CustomBuffer()
-            ...     self._model = CustomModel()
+    def _compute_adv_surrogate(self, adv_r: torch.Tensor, adv_c: torch.Tensor):
         """
-        super()._init()
-        # num_buffers = len(self._buf.buffers)
-        buffer_size = self._buf.buffers[0].max_size
-        for buffer in self._buf.buffers:
-            buffer.data['safety_idx'] = torch.zeros(buffer_size, dtype=torch.float32, device=self._device)
-            buffer.data['num_resamples'] = torch.zeros(buffer_size, dtype=torch.float32, device=self._device)
 
-    def _init_env(self) -> None:
-        """Initialize the environment.
+        Args:
+            adv_r:
+            adv_c: NOTE this is actually
 
-        OmniSafe uses :class:`omnisafe.adapter.OnPolicyAdapter` to adapt the environment to the
-        algorithm.
-
-        User can customize the environment by inheriting this method.
-
-        Examples:
-            >>> def _init_env(self) -> None:
-            ...     self._env = CustomAdapter()
-
-        Raises:
-            AssertionError: If the number of steps per epoch is not divisible by the number of
-                environments.
+        Returns:
         """
-        self._env: OnOffPolicyAdapter = OnOffPolicyAdapter(
-            self._env_id,
-            self._cfgs.train_cfgs.vector_env_nums,
-            self._seed,
-            self._cfgs,
-        )
-        assert (self._cfgs.algo_cfgs.steps_per_epoch) % (
-            distributed.world_size() * self._cfgs.train_cfgs.vector_env_nums
-        ) == 0, 'The number of steps per epoch is not divisible by the number of environments.'
-        self._steps_per_epoch: int = (
-            self._cfgs.algo_cfgs.steps_per_epoch
-            // distributed.world_size()
-            // self._cfgs.train_cfgs.vector_env_nums
-        )
+        safety_index = adv_c
 
-    def _init_model(self) -> None:
-        """Initialize the model.
-
-        OmniSafe uses :class:`omnisafe.models.actor_critic.constraint_actor_critic.ConstraintActorCritic`
-        as the default model.
-
-        User can customize the model by inheriting this method.
-
-        Examples:
-            >>> def _init_model(self) -> None:
-            ...     self._actor_critic = CustomActorCritic()
-        """
-        self._actor_critic: ActorCriticBinaryCritic = ActorCriticBinaryCritic(
-            obs_space=self._env.observation_space,
-            act_space=self._env.action_space,
-            model_cfgs=self._cfgs.model_cfgs,
-            epochs=self._cfgs.train_cfgs.epochs,
-        ).to(self._device)
-
-        if distributed.world_size() > 1:
-            distributed.sync_params(self._actor_critic)
-
-        if self._cfgs.model_cfgs.exploration_noise_anneal:
-            self._actor_critic.set_annealing(
-                epochs=[0, self._cfgs.train_cfgs.epochs],
-                std=self._cfgs.model_cfgs.std_range,
-            )
-
-    def _init_log(self) -> None:
-        super()._init_log()
-        self._logger.register_key('Metrics/NumResamples')  # number of action resamples per episode
-        self._logger.register_key('Metrics/NumInterventions')  # if an action is resampled that counts as an intervention
+        return adv_r - 100*torch.where(safety_index > 0.5, safety_index, 0)
 
     def _update(self) -> None:
         """Update actor, critic.
@@ -151,7 +80,7 @@ class TRPOBinaryCritic(TRPO):
             accepted.
         """
         data = self._buf.get()
-        obs, act, logp, target_value_r, target_value_c, adv_r, adv_c = (
+        obs, act, logp, target_value_r, target_value_c, adv_r, adv_c, safety_idx = (
             data['obs'],
             data['act'],
             data['logp'],
@@ -159,9 +88,11 @@ class TRPOBinaryCritic(TRPO):
             data['target_value_c'],
             data['adv_r'],
             data['adv_c'],
+            data['safety_idx']
         )
-        print(f'reward advantages are {adv_r}')
-        self._update_actor(obs, act, logp, adv_r, adv_c)
+        # Passing safety_index as the 'cost advantage' (this is ugly but works).
+        # see the method above.
+        self._update_actor(obs, act, logp, adv_r, adv_c=safety_idx)
 
         dataloader = DataLoader(
             dataset=TensorDataset(obs, act, target_value_r, target_value_c),
