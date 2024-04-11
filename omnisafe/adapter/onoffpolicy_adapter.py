@@ -52,6 +52,7 @@ class OnOffPolicyAdapter(OnlineAdapter):
     _ep_cost: torch.Tensor
     _ep_len: torch.Tensor
     _num_resamples: torch.Tensor
+    _num_interventions: torch.Tensor
 
     def __init__(  # pylint: disable=too-many-arguments
         self,
@@ -93,7 +94,7 @@ class OnOffPolicyAdapter(OnlineAdapter):
         ):
             act, value_r, value_c, logp, safety_idx, num_resamples = agent.step(obs)
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
-            
+
             self._log_value(reward=reward, cost=cost, info=info, num_resamples=num_resamples)
 
             if self._cfgs.algo_cfgs.use_cost:
@@ -163,7 +164,8 @@ class OnOffPolicyAdapter(OnlineAdapter):
         self._ep_cost += info.get('original_cost', cost).cpu()
         self._ep_len += 1
 
-        self._num_resamples +=num_resamples
+        self._num_resamples += num_resamples
+        self._num_interventions += int(num_resamples > 0)
 
     def _log_metrics(self, logger: Logger, idx: int) -> None:
         """Log metrics, including ``EpRet``, ``EpCost``, ``EpLen``.
@@ -177,7 +179,8 @@ class OnOffPolicyAdapter(OnlineAdapter):
                 'Metrics/EpRet': self._ep_ret[idx],
                 'Metrics/EpCost': self._ep_cost[idx],
                 'Metrics/EpLen': self._ep_len[idx],
-                'Metrics/NumResamples': self._num_resamples[idx]
+                'Metrics/NumResamples': self._num_resamples[idx],
+                'Metrics/NumInterventions': self._num_interventions[idx]
             },
         )
 
@@ -193,8 +196,10 @@ class OnOffPolicyAdapter(OnlineAdapter):
             self._ep_cost = torch.zeros(self._env.num_envs)
             self._ep_len = torch.zeros(self._env.num_envs)
             self._num_resamples = torch.zeros(self._env.num_envs)
+            self._num_interventions = torch.zeros(self._env.num_envs)
         else:
             self._ep_ret[idx] = 0.0
             self._ep_cost[idx] = 0.0
             self._ep_len[idx] = 0.0
             self._num_resamples[idx] = 0.0
+            self._num_interventions[idx] = 0.0
