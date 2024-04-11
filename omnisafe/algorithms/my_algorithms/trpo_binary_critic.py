@@ -33,6 +33,7 @@ from omnisafe.utils.tools import (
     set_param_values_to_model,
 )
 from omnisafe.models.actor_safety_critic import ActorCriticBinaryCritic
+from omnisafe.adapter import OnOffPolicyAdapter
 
 
 @registry.register
@@ -43,6 +44,9 @@ class TRPOBinaryCritic(TRPO):
         - binary_critic update is via minimizing binary cross-entropy loss across the collected rollout.
 
     Modifications:
+        - _init_model: initializes the ActorCriticBinaryCritic
+        - _init_env: initializes the environment as an OnOffPolicyAdapter.
+        - _init: initializes the buffer to store safety_indices and num_resamples.
         - _update (taken from natural_pg)
             - our cost critic is: (s, a) -> [NN] -> b(s,a) network (instead of: (s) -> [NN] -> b(s)),
                 therefore the _update method is modified so as to "pass" actions to
@@ -50,6 +54,55 @@ class TRPOBinaryCritic(TRPO):
             binary critic's update is via bce-loss.
 
     """
+
+    def _init(self) -> None:
+        """The initialization of the algorithm.
+
+        User can define the initialization of the algorithm by inheriting this method.
+
+        Examples:
+            >>> def _init(self) -> None:
+            ...     super()._init()
+            ...     self._buffer = CustomBuffer()
+            ...     self._model = CustomModel()
+        """
+        super()._init()
+        # num_buffers = len(self._buf.buffers)
+        buffer_size = self._buf.buffers[0].max_size
+        for buffer in self._buf.buffers:
+            buffer.data['safety_idx'] = torch.zeros(buffer_size, dtype=torch.float32, device=self._device)
+            buffer.data['num_resamples'] = torch.zeros(buffer_size, dtype=torch.float32, device=self._device)
+
+    def _init_env(self) -> None:
+        """Initialize the environment.
+
+        OmniSafe uses :class:`omnisafe.adapter.OnPolicyAdapter` to adapt the environment to the
+        algorithm.
+
+        User can customize the environment by inheriting this method.
+
+        Examples:
+            >>> def _init_env(self) -> None:
+            ...     self._env = CustomAdapter()
+
+        Raises:
+            AssertionError: If the number of steps per epoch is not divisible by the number of
+                environments.
+        """
+        self._env: OnOffPolicyAdapter = OnOffPolicyAdapter(
+            self._env_id,
+            self._cfgs.train_cfgs.vector_env_nums,
+            self._seed,
+            self._cfgs,
+        )
+        assert (self._cfgs.algo_cfgs.steps_per_epoch) % (
+            distributed.world_size() * self._cfgs.train_cfgs.vector_env_nums
+        ) == 0, 'The number of steps per epoch is not divisible by the number of environments.'
+        self._steps_per_epoch: int = (
+            self._cfgs.algo_cfgs.steps_per_epoch
+            // distributed.world_size()
+            // self._cfgs.train_cfgs.vector_env_nums
+        )
 
     def _init_model(self) -> None:
         """Initialize the model.
@@ -79,10 +132,9 @@ class TRPOBinaryCritic(TRPO):
                 std=self._cfgs.model_cfgs.std_range,
             )
 
-    # def _init_log(self) -> None:
-    #     # # self._cfgs.algo_cfgs.use_cost = True
-    #     # super()._init_log()
-    #     # # self._logger.register_key('Loss/BinaryCriticLoss')
+    def _init_log(self) -> None:
+        super()._init_log()
+        self._logger.register_key('Metrics/NumResamples')
 
     def _update(self) -> None:
         """Update actor, critic.

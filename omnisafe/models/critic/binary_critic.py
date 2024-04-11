@@ -146,7 +146,8 @@ class BinaryCritic(Critic):
 
     def assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
         """
-        Given an observation, assesses its safety from "safe" (0) to "unsafe" (1)
+        Given an observation, assesses its safety from "safe" (0) to "unsafe" (1).
+        Returns a continuous value in [0,1]
         by checking the mean value across all binary critics.
 
         This method is to be used in conjunction with step.
@@ -161,3 +162,18 @@ class BinaryCritic(Critic):
         safety_index = torch.stack(self.forward(obs=obs, act=a)).mean(dim=0)
         # print(f"Safety index has shape: {safety_index.shape}")
         return safety_index
+
+    def is_unsafe(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        """
+        returns whether an (o,a) pair is unsafe (1) or safe (0).
+        Args:
+            obs: the observation from the environment
+            a: the action
+
+        Returns:
+            boolean tensor indicating whether (obs, a) is classified unsafe.
+        """
+        # get safety index between 0 or 1
+        safety_index = self.assess_safety(obs, a)
+        # threshold at 0.5
+        return safety_index.round()

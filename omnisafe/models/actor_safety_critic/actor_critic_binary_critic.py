@@ -112,11 +112,13 @@ class ActorCriticBinaryCritic(ActorCritic):
         with torch.no_grad():
             value_r = self.reward_critic(obs)
             # value_c = self.cost_critic(obs)
-            action = self.pick_safe_action(obs, deterministic=deterministic)
+            action, safety_index, num_resamples = self.pick_safe_action(obs, deterministic=deterministic)
             value_c = self.cost_critic.assess_safety(obs, action)
             log_prob = self.actor.log_prob(action)
 
-        return action, value_r[0], value_c, log_prob
+        # print(f"action: {action.shape}, value_r:{value_r[0].shape}, safety_index: {safety_index.shape}, resamples={num_resamples.shape}")
+
+        return action, value_r[0], value_c, log_prob, safety_index, num_resamples
 
     def forward(
         self,
@@ -138,7 +140,8 @@ class ActorCriticBinaryCritic(ActorCritic):
         """
         return self.step(obs, deterministic=deterministic)
 
-    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False
+                         ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
         Actor proposes a candidate action.
             - if it is safe (measured by critics) it gets returned.
@@ -153,13 +156,14 @@ class ActorCriticBinaryCritic(ActorCritic):
             deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
 
         Returns:
-            A candidate safe action, or the safest action among the samples.
+            a: A candidate safe action, or the safest action among the samples.
+            safety_index: a
+            num_resamples: a
         """
         actions = []
         safety_values = []
         # print('resampling ')
-        for i in range(self.cost_critic.max_resamples):
-            # print(f'resampling {i} out of {self.cost_critic.max_resamples}')
+        for num_resample in torch.arange(self.cost_critic.max_resamples):
             with torch.no_grad():
                 # pick an unfiltered action
                 a = self.actor.predict(obs, deterministic=deterministic)
@@ -167,7 +171,9 @@ class ActorCriticBinaryCritic(ActorCritic):
             # print(f'safety index is {safety_index}')
             if safety_index < .5:
                 # found a safe action
-                return a
+                self.safety_label = 0
+                self.safety_index = safety_index
+                return a, safety_index, num_resample.unsqueeze(-1)
             else:
                 # keep looking
                 actions.append(a)
@@ -175,10 +181,9 @@ class ActorCriticBinaryCritic(ActorCritic):
         # No safe actions were found, pick the "safest" among all.
         actions = torch.stack(actions)
         safety_values = torch.stack(safety_values)
-
+        safety_index = safety_values.min().unsqueeze(-1)
         a = actions[torch.argmin(safety_values)]
-        # print(f'safest action is {safest_a}')
-        return a
+        return a, safety_index, num_resample.unsqueeze(-1)
 
     def polyak_update(self, tau: float) -> None:
         """Update the target network with polyak averaging.
