@@ -17,11 +17,11 @@ import omnisafe
 
 
 if __name__ == '__main__':
-    env_id = 'SafetyPointGoal1-v0'
+    env_id = 'SafetyPointCircle1-v0'
     # env_id = 'SafetyPointCircle1-v0'
     # agent = omnisafe.Agent('PPOLag', env_id)
-    agent = omnisafe.Agent('DDPGLag', env_id)
-    # agent = omnisafe.Agent('TRPOLag', env_id)
+    # agent = omnisafe.Agent('DDPGLag', env_id)
+    agent = omnisafe.Agent('TRPOLag', env_id)
     agent.learn()
 
     agent.plot(smooth=1)
