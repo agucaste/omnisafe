@@ -136,6 +136,7 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
         data = super().get()
         data.update(
             {'cost': self.data['cost'],
-             'next_obs': self.data['next_obs']}
+             'next_obs': self.data['next_obs'],
+             'safety_idx': self.data['safety_idx']}
         )
         return data
