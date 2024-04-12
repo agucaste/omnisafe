@@ -14,12 +14,19 @@
 # ==============================================================================
 """Example of training a policy from default config yaml with OmniSafe."""
 import omnisafe
-
+import torch
+import random
 
 if __name__ == '__main__':
     env_id = 'SafetyPointCircle1-v0'
+    
+    if torch.cuda.is_available():
+        device = 'cuda:' + random.choice(['0', '1'])
+        custom_cfgs = {'train_cfgs': {'device': device}}
+    else:
+        custom_cfgs = None
 
-    agent = omnisafe.Agent('TRPOPenaltyBinaryCritic', env_id)
+    agent = omnisafe.Agent('TRPOBinaryCritic', env_id, custom_cfgs=custom_cfgs)
     agent.learn()
 
     agent.plot(smooth=1)
