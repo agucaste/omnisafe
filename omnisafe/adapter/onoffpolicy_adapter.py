@@ -105,6 +105,7 @@ class OnOffPolicyAdapter(OnlineAdapter):
                 obs=obs,
                 act=act,
                 reward=reward,
+                next_obs=next_obs,
                 cost=cost,
                 value_r=value_r,
                 value_c=value_c,

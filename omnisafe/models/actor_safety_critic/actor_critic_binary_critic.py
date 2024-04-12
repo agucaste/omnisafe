@@ -27,6 +27,8 @@ from omnisafe.models.critic.critic_builder import CriticBuilder
 from omnisafe.typing import OmnisafeSpace
 from omnisafe.utils.config import ModelConfig
 
+from omnisafe.adapter.onoffpolicy_adapter import OnOffPolicyAdapter
+
 
 class ActorCriticBinaryCritic(ActorCritic):
     """ConstraintActorCritic is a wrapper around ActorCritic that adds a cost critic to the model.
@@ -62,6 +64,7 @@ class ActorCriticBinaryCritic(ActorCritic):
         act_space: OmnisafeSpace,
         model_cfgs: ModelConfig,
         epochs: int,
+        env: OnOffPolicyAdapter
     ) -> None:
         """Initialize an instance of :class:`ConstraintActorCritic`."""
         super().__init__(obs_space, act_space, model_cfgs, epochs)

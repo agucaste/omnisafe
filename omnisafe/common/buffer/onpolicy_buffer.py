@@ -227,10 +227,6 @@ class OnPolicyBuffer(BaseBuffer):  # pylint: disable=too-many-instance-attribute
             'adv_c': self.data['adv_c'],
             'target_value_c': self.data['target_value_c'],
         }
-        try:
-            data.update({'safety_idx': self.data['safety_idx']})
-        except KeyError:
-            pass
 
         adv_mean, adv_std, *_ = distributed.dist_statistics_scalar(data['adv_r'])
         cadv_mean, *_ = distributed.dist_statistics_scalar(data['adv_c'])

@@ -34,6 +34,7 @@ from omnisafe.utils.tools import (
 )
 from omnisafe.models.actor_safety_critic import ActorCriticBinaryCritic
 from omnisafe.adapter import OnOffPolicyAdapter
+from omnisafe.common.buffer.vector_onoffpolicy_buffer import VectorOnOffPolicyBuffer
 
 
 @registry.register
@@ -66,12 +67,20 @@ class TRPOBinaryCritic(TRPO):
             ...     self._buffer = CustomBuffer()
             ...     self._model = CustomModel()
         """
-        super()._init()
-        # num_buffers = len(self._buf.buffers)
-        buffer_size = self._buf.buffers[0].max_size
-        for buffer in self._buf.buffers:
-            buffer.data['safety_idx'] = torch.zeros(buffer_size, dtype=torch.float32, device=self._device)
-            buffer.data['num_resamples'] = torch.zeros(buffer_size, dtype=torch.float32, device=self._device)
+        self._buf: VectorOnOffPolicyBuffer = VectorOnOffPolicyBuffer(
+            obs_space=self._env.observation_space,
+            act_space=self._env.action_space,
+            size=self._steps_per_epoch,
+            gamma=self._cfgs.algo_cfgs.gamma,
+            lam=self._cfgs.algo_cfgs.lam,
+            lam_c=self._cfgs.algo_cfgs.lam_c,
+            advantage_estimator=self._cfgs.algo_cfgs.adv_estimation_method,
+            standardized_adv_r=self._cfgs.algo_cfgs.standardized_rew_adv,
+            standardized_adv_c=self._cfgs.algo_cfgs.standardized_cost_adv,
+            penalty_coefficient=self._cfgs.algo_cfgs.penalty_coef,
+            num_envs=self._cfgs.train_cfgs.vector_env_nums,
+            device=self._device,
+        )
 
     def _init_env(self) -> None:
         """Initialize the environment.
@@ -121,6 +130,7 @@ class TRPOBinaryCritic(TRPO):
             act_space=self._env.action_space,
             model_cfgs=self._cfgs.model_cfgs,
             epochs=self._cfgs.train_cfgs.epochs,
+            env=self._env
         ).to(self._device)
 
         if distributed.world_size() > 1:
@@ -151,20 +161,30 @@ class TRPOBinaryCritic(TRPO):
             accepted.
         """
         data = self._buf.get()
-        obs, act, logp, target_value_r, target_value_c, adv_r, adv_c = (
+        # obs, act, logp, target_value_r, target_value_c, adv_r, adv_c = (
+        #     data['obs'],
+        #     data['act'],
+        #     data['logp'],
+        #     data['target_value_r'],
+        #     data['target_value_c'],
+        #     data['adv_r'],
+        #     data['adv_c'],
+        # )
+        obs, act, logp, target_value_r, adv_r, adv_c, next_obs, cost = (
             data['obs'],
             data['act'],
             data['logp'],
-            data['target_value_r'],
             data['target_value_c'],
             data['adv_r'],
             data['adv_c'],
+            data['next_obs'],
+            data['cost'],
         )
         print(f'reward advantages are {adv_r}')
         self._update_actor(obs, act, logp, adv_r, adv_c)
 
         dataloader = DataLoader(
-            dataset=TensorDataset(obs, act, target_value_r, target_value_c),
+            dataset=TensorDataset(obs, act, target_value_r, cost, next_obs),
             batch_size=self._cfgs.algo_cfgs.batch_size,
             shuffle=True,
         )
@@ -174,11 +194,12 @@ class TRPOBinaryCritic(TRPO):
                 obs,
                 act,
                 target_value_r,
-                target_value_c,
+                cost,
+                next_obs
             ) in dataloader:
                 self._update_reward_critic(obs, target_value_r)
                 if self._cfgs.algo_cfgs.use_cost:
-                    self._update_cost_critic(obs, act, target_value_c)
+                    self._update_cost_critic(obs, act, next_obs, cost)
 
         self._logger.store(
             {
@@ -187,7 +208,8 @@ class TRPOBinaryCritic(TRPO):
             },
         )
 
-    def _update_cost_critic(self, obs: torch.Tensor, act: torch.Tensor, target_value_c: torch.Tensor) -> None:
+    def _update_cost_critic(self, obs: torch.Tensor, act: torch.Tensor,
+                            next_obs: torch.Tensor, cost: torch.Tensor) -> None:
         r"""Update value network under a double for loop.
 
         The loss function is ``MSE loss``, which is defined in ``torch.nn.MSELoss``.
@@ -211,10 +233,20 @@ class TRPOBinaryCritic(TRPO):
         self._actor_critic.cost_critic_optimizer.zero_grad()
         # Im adding this
         value_c = self._actor_critic.cost_critic.assess_safety(obs, act)
-        target_value_c = torch.clamp_max(target_value_c, 1)
-        # print(f'value_c has shape {value_c.shape}')
-        # print(f'target_value_c has shape {target_value_c.shape}')
-        # loss = nn.functional.mse_loss(self._actor_critic.cost_critic(obs)[0], target_value_c)
+
+        target_value_c = []
+        for o_prime in next_obs:
+            a, *_ = self._actor_critic.step(o_prime)
+            target_c = self._actor_critic.target_cost_critic.assess_safety(o_prime, a)
+            target_value_c.append(target_c)
+
+        # print('Training binary critic....')
+        # print(f'last cost_value has shape {target_c.shape}')
+        target_value_c = torch.stack(target_value_c)
+        # print(f'target cost_value tensor has shape {target_value_c.shape}')
+
+        target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
+
         loss = nn.functional.binary_cross_entropy(value_c, target_value_c)
 
         if self._cfgs.algo_cfgs.use_critic_norm:
