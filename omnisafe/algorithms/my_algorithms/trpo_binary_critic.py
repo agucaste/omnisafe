@@ -146,6 +146,10 @@ class TRPOBinaryCritic(TRPO):
         super()._init_log()
         self._logger.register_key('Metrics/NumResamples')  # number of action resamples per episode
         self._logger.register_key('Metrics/NumInterventions')  # if an action is resampled that counts as an intervention
+        self._logger.register_key('Loss/Loss_cost_critic_init')
+
+        # TODO: Move this to another place! here it's ugly.
+        self._actor_critic.initialize_cost_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
 
     def _update(self) -> None:
         """Update actor, critic.

@@ -53,18 +53,18 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
 
     """
 
-    def _compute_adv_surrogate(self, adv_r: torch.Tensor, adv_c: torch.Tensor):
-        """
-
-        Args:
-            adv_r:
-            adv_c: NOTE this is actually
-
-        Returns:
-        """
-        safety_index = adv_c
-
-        return adv_r - 100*torch.where(safety_index > 0.5, safety_index, 0)
+    # def _compute_adv_surrogate(self, adv_r: torch.Tensor, adv_c: torch.Tensor):
+    #     """
+    #
+    #     Args:
+    #         adv_r:
+    #         adv_c: NOTE this is actually
+    #
+    #     Returns:
+    #     """
+    #     safety_index = adv_c
+    #
+    #     return adv_r - 100*torch.where(safety_index > 0.5, safety_index, 0)
 
     def _update(self) -> None:
         """Update actor, critic.
@@ -101,7 +101,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
             data['safety_idx']
         )
         # print(f'reward advantages are {adv_r}')
-        self._update_actor(obs, act, logp, adv_r, adv_c=safety_idx)
+        self._update_actor(obs, act, logp, adv_r, adv_c=adv_c, safety_idx=safety_idx)
 
         dataloader = DataLoader(
             dataset=TensorDataset(obs, act, target_value_r, cost, next_obs),
@@ -127,4 +127,103 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
                 'Value/Adv': adv_r.mean().item(),
             },
         )
+
+    def _update_actor(  # pylint: disable=too-many-arguments
+        self,
+        obs: torch.Tensor,
+        act: torch.Tensor,
+        logp: torch.Tensor,
+        adv_r: torch.Tensor,
+        adv_c: torch.Tensor,
+        safety_idx: torch.Tensor,
+    ) -> None:
+        self._fvp_obs = obs[:: self._cfgs.algo_cfgs.fvp_sample_freq]
+        theta_old = get_flat_params_from(self._actor_critic.actor)
+        self._actor_critic.actor.zero_grad()
+        adv = self._compute_adv_surrogate(adv_r, adv_c, safety_idx)
+        loss = self._loss_pi(obs, act, logp, adv)
+        loss_before = distributed.dist_avg(loss)
+        p_dist = self._actor_critic.actor(obs)
+
+        loss.backward()
+        distributed.avg_grads(self._actor_critic.actor)
+
+        grads = -get_flat_gradients_from(self._actor_critic.actor)
+        x = conjugate_gradients(self._fvp, grads, self._cfgs.algo_cfgs.cg_iters)
+        assert torch.isfinite(x).all(), 'x is not finite'
+        xHx = torch.dot(x, self._fvp(x))
+        assert xHx.item() >= 0, 'xHx is negative'
+        alpha = torch.sqrt(2 * self._cfgs.algo_cfgs.target_kl / (xHx + 1e-8))
+        step_direction = x * alpha
+        assert torch.isfinite(step_direction).all(), 'step_direction is not finite'
+
+        step_direction, accept_step = self._search_step_size(
+            step_direction=step_direction,
+            grads=grads,
+            p_dist=p_dist,
+            obs=obs,
+            act=act,
+            logp=logp,
+            adv=adv,
+            loss_before=loss_before,
+        )
+
+        theta_new = theta_old + step_direction
+        set_param_values_to_model(self._actor_critic.actor, theta_new)
+
+        with torch.no_grad():
+            loss = self._loss_pi(obs, act, logp, adv)
+
+        self._logger.store(
+            {
+                'Misc/Alpha': alpha.item(),
+                'Misc/FinalStepNorm': torch.norm(step_direction).mean().item(),
+                'Misc/xHx': xHx.item(),
+                'Misc/gradient_norm': torch.norm(grads).mean().item(),
+                'Misc/H_inv_g': x.norm().item(),
+                'Misc/AcceptanceStep': accept_step,
+            },
+        )
+
+    def _compute_adv_surrogate(  # pylint: disable=unused-argument
+        self,
+        adv_r: torch.Tensor,
+        adv_c: torch.Tensor,
+        safety_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """Computes advantage surrogate for the actor using a penalization scheme.
+        Three modes of surrogate to choose from (as specified by .yaml config file):
+            1. 'naive':
+                    adv_r <- adv_r - M * adv_c
+            2. 'penalize_unsafe':
+                    adv_r <- adv_r - M * adv_c * 1{b(s,a) == 1}
+            3. 'penalize_safe':
+                    adv_r <- adv_r - M * adv_c * 1{b(s,a) == 0}
+        In all three cases "M" is a fixed penalization constant.
+
+        Args:
+            adv_r (torch.Tensor): The ``reward_advantage`` sampled from buffer.
+            adv_c (torch.Tensor): The ``cost_advantage`` sampled from buffer.
+                                     Corresponds to the advantage given by the binary critics.
+                                     # TODO: Should we implement a 'normal' cost critic???
+            safety_idx (torch.Tensor): the predicted \hat{b}(s,a) (continuous, between [0, 1])
+
+
+        Returns:
+            The advantage function of reward to update policy network.
+        """
+        coef = self._cfgs.algo_cfgs.adv_surrogate_penalty
+
+        surrogate_types = ['naive', 'penalize_unsafe', 'penalize_safe']
+        penalization = self._cfgs.algo_cfgs.adv_surrogate_type
+
+        if penalization == 'naive':
+            adv_r = adv_r - coef * adv_c
+        elif penalization == 'penalize_unsafe':
+            adv_r = adv_r - coef * adv_c * (safety_idx >= .5).to(safety_idx.dtype)
+        elif penalization == 'penalize_safe':
+            adv_r = adv_r - coef * adv_c * (safety_idx < .5).to(safety_idx.dtype)
+        else:
+            raise ValueError(f'Advantage surrogate type must be one of {surrogate_types}')
+        return adv_r
 

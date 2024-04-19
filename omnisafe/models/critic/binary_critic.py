@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-
 from omnisafe.models.base import Critic
 from omnisafe.typing import Activation, InitFunction, OmnisafeSpace
 from omnisafe.utils.model import build_mlp_network
+
+from tqdm import trange
 
 
 class BinaryCritic(Critic):
@@ -177,3 +178,6 @@ class BinaryCritic(Critic):
         safety_index = self.assess_safety(obs, a)
         # threshold at 0.5
         return safety_index.round()
+
+
+

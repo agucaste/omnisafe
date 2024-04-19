@@ -56,6 +56,11 @@ defaults:
     standardized_rew_adv: True
     # standardize cost advantage
     standardized_cost_adv: True
+    # The type of advantage surrogate to use (in algo's method _compute_adv_surrogate)
+    # Should be one of ['naive', 'penalize_safe', 'penalize_unsafe']
+    adv_surrogate_type: 'naive'
+    # How much to penalize the cost in the adv_surrogate computation
+    adv_surrogate_penalty: 100
     # penalty coefficient
     penalty_coef: 0.0
     # use cost
@@ -112,8 +117,12 @@ defaults:
       lr: 0.001
       # The cost critic
     cost_critic:
-      num_critics: 5
+      num_critics: 1
       max_resamples: 50
       hidden_sizes: [256, 256]
       activation: tanh
       lr: 0.001
+      initialization:
+        o_samples: 10
+        a_samples: 5
+        epochs: 100

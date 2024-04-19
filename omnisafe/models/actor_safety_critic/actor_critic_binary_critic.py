@@ -20,14 +20,25 @@ from copy import deepcopy
 
 import torch
 from torch import optim
+from torch.utils.data import DataLoader, TensorDataset
+from torch import nn
+from torch.nn.utils.clip_grad import clip_grad_norm_
 
 from omnisafe.models.actor_critic.actor_critic import ActorCritic
 from omnisafe.models.base import Critic
 from omnisafe.models.critic.critic_builder import CriticBuilder
 from omnisafe.typing import OmnisafeSpace
-from omnisafe.utils.config import ModelConfig
+from omnisafe.utils.config import ModelConfig, Config
+from omnisafe.common.logger import Logger
 
 from omnisafe.adapter.onoffpolicy_adapter import OnOffPolicyAdapter
+from omnisafe.utils import distributed
+
+from tqdm import trange
+from rich.progress import track
+
+from matplotlib import pyplot as plt
+import numpy as np
 
 
 class ActorCriticBinaryCritic(ActorCritic):
@@ -79,6 +90,9 @@ class ActorCriticBinaryCritic(ActorCritic):
             use_obs_encoder=False,
         ).build_critic('b')
 
+        # # initialize the networks
+        # self.initialize_cost_critic(env=env, model_cfgs=model_cfgs)
+
         # TODO: find a way to implement self.cost_critic.max_resamples.
         print(f'max resample value for the binary critic is is {model_cfgs.cost_critic.max_resamples}')
         self.cost_critic.max_resamples = model_cfgs.cost_critic.max_resamples
@@ -93,6 +107,94 @@ class ActorCriticBinaryCritic(ActorCritic):
                 self.cost_critic.parameters(),
                 lr=model_cfgs.critic.lr,
             )
+
+    def initialize_cost_critic(self, env: OnOffPolicyAdapter, cfgs: Config, logger:Logger) -> None:
+        """
+        Initializes the classifiers with "safe" data points.
+        Builds a dataset of "safe" tuples {(o_i, a_i, y_i=0)}_i:
+            - observations o_i correspond to environment resets.
+            - actions a_i are sampled uniformly at random.
+            - labels y_i=0 ( we assume all those (o_i, a_i) points are 'safe'
+
+        Args:
+            env: the environment
+            model_cfgs: the model configuration. In particular, we will get:
+                - obs_samples: how many 'samples' to take from the environment by resetting it.
+                - a_samples: how many samples to take for each observation
+                - epochs: after building the dataset with 'samples', run mini-batch sgd with it for this many epochs.
+                - batch_size: size of minibatch.
+        """
+
+        obs_samples = cfgs.model_cfgs.cost_critic.initialization.o_samples
+        a_samples = cfgs.model_cfgs.cost_critic.initialization.a_samples
+        epochs = cfgs.model_cfgs.cost_critic.initialization.epochs
+        batch_size = cfgs.algo_cfgs.batch_size
+
+        print('Initializing classifiers...')
+        obs, _ = env.reset()
+        print(f'resetting the environment...\nobs shape is {obs.shape}')
+        print()
+        observations = []
+        actions = []
+        print('Collecting data...')
+        for _ in trange(obs_samples):
+            o, _ = env.reset()
+            for _ in range(a_samples):
+                a = torch.tensor(env.action_space.sample(), dtype=torch.float).unsqueeze(0)
+                observations.append(o)
+                actions.append(a)
+
+        observations = torch.cat(observations, dim=0)
+        actions = torch.cat(actions, dim=0)
+        y = torch.zeros(size=(observations.shape[0], ))
+
+        # print(f'dataset tensors have shape:\nobs: {observations.shape}\na: {actions.shape}\n y: {y.shape}')
+        # print(f'tensors have type:\no: {observations.dtype}, a: {actions.dtype}, y: {y.dtype}')
+        dataloader = DataLoader(
+            dataset=TensorDataset(observations, actions, y),
+            batch_size=batch_size,
+            shuffle=True
+        )
+        losses = []
+        print('Training classifiers...')
+        for _ in track(range(epochs), description=f'Initializing safety critic, total epochs: {epochs}'):
+            # Get minibatch
+            for o, a, y in dataloader:
+                self.cost_critic_optimizer.zero_grad()
+                # Compute bce loss
+                value = self.cost_critic.assess_safety(o, a)
+                loss = nn.functional.binary_cross_entropy(value, y)
+                # This mirrors 'cost_critic.update()' in TRPOBinaryCritic
+                if cfgs.algo_cfgs.use_critic_norm:
+                    for param in self.cost_critic.parameters():
+                        loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef
+
+                loss.backward()
+
+                if cfgs.algo_cfgs.use_max_grad_norm:
+                    clip_grad_norm_(
+                        self.cost_critic.parameters(),
+                        cfgs.algo_cfgs.max_grad_norm,
+                    )
+                distributed.avg_grads(self.cost_critic)
+                self.cost_critic_optimizer.step()
+                print(f'loss: {loss.mean().item():.2f}')
+                # logger.store({'Loss/Loss_cost_critic_init': loss.mean().item()})
+                losses.append(loss.mean().item())
+        # Sync parameters with cost_critics
+        del self.target_cost_critic
+        self.target_cost_critic = deepcopy(self.cost_critic)
+
+        plot_fp = logger._log_dir + '/binary_critic_init_loss.png'
+        plt.figure()
+        plt.plot(np.array(losses))
+        plt.xlabel('Gradient steps')
+        plt.ylabel('Loss')
+        plt.title('Binary critic: BCE initialization loss')
+        plt.savefig(plot_fp, dpi=200)
+        print(f'Saving binary critic initialization loss at {plot_fp}')
+        plt.close()
+        return
 
     def step(
         self,
