@@ -108,27 +108,14 @@ class ActorCriticBinaryCritic(ActorCritic):
                 lr=model_cfgs.critic.lr,
             )
 
-    def initialize_cost_critic(self, env: OnOffPolicyAdapter, cfgs: Config, logger:Logger) -> None:
-        """
-        Initializes the classifiers with "safe" data points.
-        Builds a dataset of "safe" tuples {(o_i, a_i, y_i=0)}_i:
-            - observations o_i correspond to environment resets.
-            - actions a_i are sampled uniformly at random.
-            - labels y_i=0 ( we assume all those (o_i, a_i) points are 'safe'
+        # Save the environment (this may be useful if one is stepping with a uniformly safe policy, see step() )
+        self._env = env
+        # The axiomatic dataset with 'safe' transitions, see initialize_cost_critic()
+        self.axiomatic_dataset = {}
 
-        Args:
-            env: the environment
-            model_cfgs: the model configuration. In particular, we will get:
-                - obs_samples: how many 'samples' to take from the environment by resetting it.
-                - a_samples: how many samples to take for each observation
-                - epochs: after building the dataset with 'samples', run mini-batch sgd with it for this many epochs.
-                - batch_size: size of minibatch.
-        """
-
+    def initialize_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         obs_samples = cfgs.model_cfgs.cost_critic.initialization.o_samples
         a_samples = cfgs.model_cfgs.cost_critic.initialization.a_samples
-        epochs = cfgs.model_cfgs.cost_critic.initialization.epochs
-        batch_size = cfgs.algo_cfgs.batch_size
 
         print('Initializing classifiers...')
         obs, _ = env.reset()
@@ -146,12 +133,26 @@ class ActorCriticBinaryCritic(ActorCritic):
 
         observations = torch.cat(observations, dim=0)
         actions = torch.cat(actions, dim=0)
-        y = torch.zeros(size=(observations.shape[0], ))
+        y = torch.zeros(size=(observations.shape[0],))
 
-        # print(f'dataset tensors have shape:\nobs: {observations.shape}\na: {actions.shape}\n y: {y.shape}')
-        # print(f'tensors have type:\no: {observations.dtype}, a: {actions.dtype}, y: {y.dtype}')
+        # Saving the dataset for future reference.
+        self.axiomatic_dataset = {
+            'obs': observations,
+            'act': actions,
+            'y': y
+        }
+
+    def train_from_axiomatic_dataset(self, cfgs):
+        epochs = cfgs.model_cfgs.cost_critic.initialization.epochs
+        batch_size = cfgs.algo_cfgs.batch_size
+
+        obs, act, y = (
+            self.axiomatic_dataset['obs'],
+            self.axiomatic_dataset['act'],
+            self.axiomatic_dataset['y']
+        )
         dataloader = DataLoader(
-            dataset=TensorDataset(observations, actions, y),
+            dataset=TensorDataset(obs, act, y),
             batch_size=batch_size,
             shuffle=True
         )
@@ -178,9 +179,33 @@ class ActorCriticBinaryCritic(ActorCritic):
                     )
                 distributed.avg_grads(self.cost_critic)
                 self.cost_critic_optimizer.step()
-                print(f'loss: {loss.mean().item():.2f}')
+                # print(f'loss: {loss.mean().item():.2f}')
                 # logger.store({'Loss/Loss_cost_critic_init': loss.mean().item()})
                 losses.append(loss.mean().item())
+        return losses
+
+    def initialize_cost_critic(self, env: OnOffPolicyAdapter, cfgs: Config, logger:Logger) -> None:
+        """
+        Initializes the classifiers with "safe" data points.
+        Builds a dataset of "safe" tuples {(o_i, a_i, y_i=0)}_i:
+            - observations o_i correspond to environment resets.
+            - actions a_i are sampled uniformly at random.
+            - labels y_i=0 ( we assume all those (o_i, a_i) points are 'safe'
+        Runs mini-batch SGD with this dataset.
+        The dataset is saved as an 'axiomatically safe' dataset, to be used at every future training phase.
+
+        Args:
+            env: the environment
+            model_cfgs: the model configuration. In particular, we will get:
+                - obs_samples: how many 'samples' to take from the environment by resetting it.
+                - a_samples: how many samples to take for each observation
+                - epochs: after building the dataset with 'samples', run mini-batch sgd with it for this many epochs.
+                - batch_size: size of minibatch.
+        """
+
+        self.initialize_axiomatic_dataset(env, cfgs)
+        losses = self.train_from_axiomatic_dataset(cfgs)
+
         # Sync parameters with cost_critics
         del self.target_cost_critic
         self.target_cost_critic = deepcopy(self.cost_critic)
@@ -217,7 +242,7 @@ class ActorCriticBinaryCritic(ActorCritic):
         with torch.no_grad():
             value_r = self.reward_critic(obs)
             # value_c = self.cost_critic(obs)
-            action, safety_index, num_resamples = self.pick_safe_action(obs, deterministic=deterministic)
+            action, safety_index, num_resamples = self.pick_safe_action(obs, deterministic=deterministic, bypass_actor=False)
             value_c = self.cost_critic.assess_safety(obs, action)
             log_prob = self.actor.log_prob(action)
 
@@ -245,12 +270,12 @@ class ActorCriticBinaryCritic(ActorCritic):
         """
         return self.step(obs, deterministic=deterministic)
 
-    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False
+    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, bypass_actor=False,
                          ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
-        Actor proposes a candidate action.
+        A candidate action is proposed.
             - if it is safe (measured by critics) it gets returned.
-            - If it is not, actor resamples an action.
+            - If it is not, an action is resampled.
         This process ends when:
             - a safe action is found, or
             - after a number of steps given by max_resamples.
@@ -258,12 +283,14 @@ class ActorCriticBinaryCritic(ActorCritic):
 
         Args:
             obs (torch.tensor): The observation from environments.
-            deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
+            deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
+            bypass_actor (bool, optional): Whether to bypass the actor all together and take a random sample from environment.
+                                           Useful for implementing a uniform policy.
 
         Returns:
             a: A candidate safe action, or the safest action among the samples.
-            safety_index: a
-            num_resamples: a
+            safety_index: the safety index (between 0 (safe) and 1 (unsafe)).
+            num_resamples: the number of resamples done before a safe action was found.
         """
         actions = []
         safety_values = []
@@ -271,7 +298,12 @@ class ActorCriticBinaryCritic(ActorCritic):
         for num_resample in torch.arange(self.cost_critic.max_resamples):
             with torch.no_grad():
                 # pick an unfiltered action
-                a = self.actor.predict(obs, deterministic=deterministic)
+                if bypass_actor:
+                    # Sample a random action from the environment
+                    a = torch.as_tensor(self._env._env.sample_action(), dtype=torch.float32)
+                else:
+                    # Use the actor to pick an action.
+                    a = self.actor.predict(obs, deterministic=deterministic)
                 safety_index = self.cost_critic.assess_safety(obs, a)
             # print(f'safety index is {safety_index}')
             if safety_index < .5:
@@ -296,7 +328,7 @@ class ActorCriticBinaryCritic(ActorCritic):
         Args:
             tau (float): The polyak averaging factor.
         """
-        super().polyak_update(tau)
+        # super().polyak_update(tau)
         for target_param, param in zip(
             self.target_cost_critic.parameters(),
             self.cost_critic.parameters(),

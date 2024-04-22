@@ -68,6 +68,10 @@ defaults:
     fvp_obs: None
     # The sub-sampling rate of the observation
     fvp_sample_freq: 1
+    # The soft update coefficient
+    polyak: 0.005
+#    # The delay between updates of target network
+#    target_network_delay: 1
   # logger configurations
   logger_cfgs:
     # use wandb for logging
@@ -121,8 +125,8 @@ defaults:
       # safety critics are initialized with a 'safe' dataset, from environment resets and rnd actions
       initialization:
         # number of observation samples
-        o_samples: 1000
+        o_samples: 1  # 1000
         # number of action samples
         a_samples: 5
         # how many epochs to train for
-        epochs: 100
+        epochs: 1  # 100

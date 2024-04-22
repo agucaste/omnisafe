@@ -211,6 +211,11 @@ class TRPOBinaryCritic(TRPO):
                 'Value/Adv': adv_r.mean().item(),
             },
         )
+        # Update the target critic via polyak averaging.
+        # TODO: Pass as an option the ability to do 'update every N delay'
+        # TODO: right now this is updated after each epoch.
+        self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak)
+
 
     def _update_cost_critic(self, obs: torch.Tensor, act: torch.Tensor,
                             next_obs: torch.Tensor, cost: torch.Tensor) -> None:
@@ -250,8 +255,9 @@ class TRPOBinaryCritic(TRPO):
         # print(f'target cost_value tensor has shape {target_value_c.shape}')
 
         target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
+        unsafe_mask = target_value_c >= .5
 
-        loss = nn.functional.binary_cross_entropy(value_c, target_value_c)
+        loss = nn.functional.binary_cross_entropy(value_c[unsafe_mask], target_value_c[unsafe_mask])
 
         if self._cfgs.algo_cfgs.use_critic_norm:
             for param in self._actor_critic.cost_critic.parameters():
