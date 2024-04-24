@@ -160,6 +160,7 @@ class BinaryCritic(Critic):
         Returns:
             safety_index (torch.tensor): a value in [0, 1], denoting how unsafe the action is.
         """
+        # print(f'Observation has shape {obs.shape}\nAction has shape {a.shape}')
         safety_index = torch.stack(self.forward(obs=obs, act=a)).mean(dim=0)
         # print(f"Safety index has shape: {safety_index.shape}")
         return safety_index

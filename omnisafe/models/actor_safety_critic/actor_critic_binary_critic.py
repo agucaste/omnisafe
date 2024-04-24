@@ -40,6 +40,7 @@ from rich.progress import track
 from matplotlib import pyplot as plt
 import numpy as np
 
+from typing import Optional
 
 class ActorCriticBinaryCritic(ActorCritic):
     """ConstraintActorCritic is a wrapper around ActorCritic that adds a cost critic to the model.
@@ -142,9 +143,38 @@ class ActorCriticBinaryCritic(ActorCritic):
             'y': y
         }
 
-    def train_from_axiomatic_dataset(self, cfgs):
-        epochs = cfgs.model_cfgs.cost_critic.initialization.epochs
-        batch_size = cfgs.algo_cfgs.batch_size
+    def train_from_axiomatic_dataset(self,
+                                     cfgs: Config,
+                                     logger: Logger,
+                                     epochs: Optional[int],
+                                     batch_size: Optional[int],
+                                     ):
+
+        """
+        Runs minibatch sgd on the 'axiomatic' dataset.
+
+        Args:
+        cfgs (Config): The configuration file
+        epochs: How many epochs to train for. If provided by user, over-runs whatever is in cfgs.
+        batch_size: the mini-batch size. If provided by user, over-runs whatever is in cfgs.
+
+        The rational being that:
+            1) first, the critic is trained only with this dataset.
+            2) then, when training in the outer algorithm loop,after minimizing the Bellman loss w.r.t.
+                the collected data, one also calls this function to fit to the axiomatic dataset.
+
+    Attributes:
+        actor (Actor): The actor network.
+        reward_critic (Critic): The critic network.
+        cost_critic (Critic): The critic network.
+        std_schedule (Schedule): The schedule for the standard deviation of the Gaussian distribution.
+
+
+        """
+        if epochs is None:
+            epochs = cfgs.model_cfgs.cost_critic.initialization.epochs
+        if batch_size is None:
+            batch_size = cfgs.algo_cfgs.batch_size
 
         obs, act, y = (
             self.axiomatic_dataset['obs'],
@@ -157,8 +187,8 @@ class ActorCriticBinaryCritic(ActorCritic):
             shuffle=True
         )
         losses = []
-        print('Training classifiers...')
-        for _ in track(range(epochs), description=f'Initializing safety critic, total epochs: {epochs}'):
+        # print('Training classifiers...')
+        for _ in range(epochs):
             # Get minibatch
             for o, a, y in dataloader:
                 self.cost_critic_optimizer.zero_grad()
@@ -180,7 +210,7 @@ class ActorCriticBinaryCritic(ActorCritic):
                 distributed.avg_grads(self.cost_critic)
                 self.cost_critic_optimizer.step()
                 # print(f'loss: {loss.mean().item():.2f}')
-                # logger.store({'Loss/Loss_cost_critic_init': loss.mean().item()})
+                logger.store({'Loss/cost_critic_axiomatic': loss.mean().item()})
                 losses.append(loss.mean().item())
         return losses
 
@@ -204,7 +234,10 @@ class ActorCriticBinaryCritic(ActorCritic):
         """
 
         self.initialize_axiomatic_dataset(env, cfgs)
-        losses = self.train_from_axiomatic_dataset(cfgs)
+        losses = self.train_from_axiomatic_dataset(cfgs=cfgs,
+                                                   logger=logger,
+                                                   epochs=None,
+                                                   batch_size=None)
 
         # Sync parameters with cost_critics
         del self.target_cost_critic
@@ -225,6 +258,7 @@ class ActorCriticBinaryCritic(ActorCritic):
         self,
         obs: torch.Tensor,
         deterministic: bool = False,
+        bypass_actor: bool = False
     ) -> tuple[torch.Tensor, ...]:
         """Choose action based on observation.
 
@@ -242,7 +276,9 @@ class ActorCriticBinaryCritic(ActorCritic):
         with torch.no_grad():
             value_r = self.reward_critic(obs)
             # value_c = self.cost_critic(obs)
-            action, safety_index, num_resamples = self.pick_safe_action(obs, deterministic=deterministic, bypass_actor=False)
+            action, safety_index, num_resamples = self.pick_safe_action(obs=obs,
+                                                                        deterministic=deterministic,
+                                                                        bypass_actor=bypass_actor)
             value_c = self.cost_critic.assess_safety(obs, action)
             log_prob = self.actor.log_prob(action)
 
@@ -300,7 +336,7 @@ class ActorCriticBinaryCritic(ActorCritic):
                 # pick an unfiltered action
                 if bypass_actor:
                     # Sample a random action from the environment
-                    a = torch.as_tensor(self._env._env.sample_action(), dtype=torch.float32)
+                    a = torch.as_tensor(self._env._env.sample_action(), dtype=torch.float32).unsqueeze(0)
                 else:
                     # Use the actor to pick an action.
                     a = self.actor.predict(obs, deterministic=deterministic)

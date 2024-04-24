@@ -23,18 +23,19 @@ import torch
 from torch import nn
 from torch.nn.utils.clip_grad import clip_grad_norm_
 
-from omnisafe.adapter import OffPolicyAdapter
+from omnisafe.adapter import MyOffPolicyAdapter
 from omnisafe.algorithms import registry
+from omnisafe.algorithms.off_policy import DDPG
 from omnisafe.algorithms.base_algo import BaseAlgo
 from omnisafe.common.buffer import VectorOffPolicyBuffer
+from omnisafe.common.buffer.vector_myoffpolicy_buffer import VectorMyOffPolicyBuffer
 from omnisafe.common.logger import Logger
-from omnisafe.models.actor_critic.actor_q_critic import ActorQCritic
-from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic
+from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic, ActorCriticBinaryCritic
 
 
 @registry.register
 # pylint: disable-next=too-many-instance-attributes,too-few-public-methods
-class OffPolicyStaticBinaryCritic(BaseAlgo):
+class UniformBinaryCritic(DDPG):
     """
     Uniform Binary Critic algorithm.
     Modified from base implementation of DDPG.
@@ -60,7 +61,7 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
             AssertionError: If the total number of steps is not divisible by the number of steps per
                 epoch.
         """
-        self._env: OffPolicyAdapter = OffPolicyAdapter(
+        self._env: MyOffPolicyAdapter = MyOffPolicyAdapter(
             self._env_id,
             self._cfgs.train_cfgs.vector_env_nums,
             self._seed,
@@ -106,7 +107,8 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
             obs_space=self._env.observation_space,
             act_space=self._env.action_space,
             model_cfgs=self._cfgs.model_cfgs,
-            epochs=self._epochs,
+            epochs=self._cfgs.train_cfgs.epochs,
+            env=self._env
         ).to(self._device)
 
         # print("Setting actor's network weights to zero...")
@@ -125,7 +127,7 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
             ...     self._buffer = CustomBuffer()
             ...     self._model = CustomModel()
         """
-        self._buf: VectorOffPolicyBuffer = VectorOffPolicyBuffer(
+        self._buf: VectorMyOffPolicyBuffer = VectorMyOffPolicyBuffer(
             obs_space=self._env.observation_space,
             act_space=self._env.action_space,
             size=self._cfgs.algo_cfgs.size,
@@ -135,122 +137,24 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
         )
 
     def _init_log(self) -> None:
-        """Log info about epoch.
+        super()._init_log()
+        self._logger.register_key('Loss/cost_critic_axiomatic')
+        self._logger.register_key('Metrics/NumResamples')  # number of action resamples per episode
+        self._logger.register_key('Metrics/NumInterventions')  # if an action is resampled that counts as an intervention
+        self._logger.register_key('Metrics/TestNumResamples')
+        self._logger.register_key('Metrics/TestNumInterventions')
 
-        +-------------------------+----------------------------------------------------------------------+
-        | Things to log           | Description                                                          |
-        +=========================+======================================================================+
-        | Train/Epoch             | Current epoch.                                                       |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/EpCost          | Average cost of the epoch.                                           |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/EpRet           | Average return of the epoch.                                         |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/EpLen           | Average length of the epoch.                                         |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/TestEpCost      | Average cost of the evaluate epoch.                                  |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/TestEpRet       | Average return of the evaluate epoch.                                |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/TestEpLen       | Average length of the evaluate epoch.                                |
-        +-------------------------+----------------------------------------------------------------------+
-        | Value/reward_critic     | Average value in :meth:`rollout` (from critic network) of the epoch. |
-        +-------------------------+----------------------------------------------------------------------+
-        | Values/cost_critic      | Average cost in :meth:`rollout` (from critic network) of the epoch.  |
-        +-------------------------+----------------------------------------------------------------------+
-        | Loss/Loss_pi            | Loss of the policy network.                                          |
-        +-------------------------+----------------------------------------------------------------------+
-        | Loss/Loss_reward_critic | Loss of the reward critic.                                           |
-        +-------------------------+----------------------------------------------------------------------+
-        | Loss/Loss_cost_critic   | Loss of the cost critic network.                                     |
-        +-------------------------+----------------------------------------------------------------------+
-        | Train/LR                | Learning rate of the policy network.                                 |
-        +-------------------------+----------------------------------------------------------------------+
-        | Misc/Seed               | Seed of the experiment.                                              |
-        +-------------------------+----------------------------------------------------------------------+
-        | Misc/TotalEnvSteps      | Total steps of the experiment.                                       |
-        +-------------------------+----------------------------------------------------------------------+
-        | Time/Total              | Total time.                                                          |
-        +-------------------------+----------------------------------------------------------------------+
-        | Time/Rollout            | Rollout time.                                                        |
-        +-------------------------+----------------------------------------------------------------------+
-        | Time/Update             | Update time.                                                         |
-        +-------------------------+----------------------------------------------------------------------+
-        | Time/Evaluate           | Evaluate time.                                                       |
-        +-------------------------+----------------------------------------------------------------------+
-        | FPS                     | Frames per second of the epoch.                                      |
-        +-------------------------+----------------------------------------------------------------------+
-        """
-        self._logger: Logger = Logger(
-            output_dir=self._cfgs.logger_cfgs.log_dir,
-            exp_name=self._cfgs.exp_name,
-            seed=self._cfgs.seed,
-            use_tensorboard=self._cfgs.logger_cfgs.use_tensorboard,
-            use_wandb=self._cfgs.logger_cfgs.use_wandb,
-            config=self._cfgs,
-        )
-
-        what_to_save: dict[str, Any] = {}
-        what_to_save['pi'] = self._actor_critic.actor
-        if self._cfgs.algo_cfgs.obs_normalize:
-            obs_normalizer = self._env.save()['obs_normalizer']
-            what_to_save['obs_normalizer'] = obs_normalizer
-
-        self._logger.setup_torch_saver(what_to_save)
-        self._logger.torch_save()
-
-        self._logger.register_key('Metrics/EpRet', window_length=50)
-        self._logger.register_key('Metrics/EpCost', window_length=50)
-        self._logger.register_key('Metrics/EpLen', window_length=50)
-
-        if self._cfgs.train_cfgs.eval_episodes > 0:
-            self._logger.register_key('Metrics/TestEpRet', window_length=50)
-            self._logger.register_key('Metrics/TestEpCost', window_length=50)
-            self._logger.register_key('Metrics/TestEpLen', window_length=50)
-
-        self._logger.register_key('Train/Epoch')
-        self._logger.register_key('Train/LR')
-
-        self._logger.register_key('TotalEnvSteps')
-
-        # log information about actor
-        self._logger.register_key('Loss/Loss_pi', delta=True)
-
-        # log information about critic
-        self._logger.register_key('Loss/Loss_reward_critic', delta=True)
-        self._logger.register_key('Value/reward_critic')
-
-        if self._cfgs.algo_cfgs.use_cost:
-            # log information about cost critic
-            self._logger.register_key('Loss/Loss_cost_critic', delta=True)
-            self._logger.register_key('Value/cost_critic')
-
-        self._logger.register_key('Time/Total')
-        self._logger.register_key('Time/Rollout')
-        self._logger.register_key('Time/Update')
-        self._logger.register_key('Time/Evaluate')
-        self._logger.register_key('Time/Epoch')
-        self._logger.register_key('Time/FPS')
+        # TODO: Move this to another place! here it's ugly.
+        self._actor_critic.initialize_cost_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
 
     def learn(self) -> tuple[float, float, float]:
-        """This is main function for algorithm update.
-
-        It is divided into the following steps:
-
-        - :meth:`rollout`: collect interactive data from environment.
-        - :meth:`update`: perform actor/critic updates.
-        - :meth:`log`: epoch/update information for visualization and terminal log print.
-
-        Returns:
-            ep_ret: average episode return in final epoch.
-            ep_cost: average episode cost in final epoch.
-            ep_len: average episode length in final epoch.
+        """
+        Only difference with respect to DDPG: when calling 'rollout', pass rand_action=True (Always!)
         """
         self._logger.log('INFO: Start training')
         start_time = time.time()
         step = 0
         for epoch in range(self._epochs):
-            print(f'current epoch {epoch}')
             self._epoch = epoch
             rollout_time = 0.0
             update_time = 0.0
@@ -261,7 +165,7 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
                 (epoch + 1) * self._samples_per_epoch,
             ):
                 step = sample_step * self._update_cycle * self._cfgs.train_cfgs.vector_env_nums
-
+                print(f'step = {step}')
                 rollout_start = time.time()
                 # set noise for exploration
                 if self._cfgs.algo_cfgs.use_exploration_noise:
@@ -273,7 +177,7 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
                     agent=self._actor_critic,
                     buffer=self._buf,
                     logger=self._logger,
-                    use_rand_action=(step <= self._cfgs.algo_cfgs.start_learning_steps),
+                    use_rand_action=True,  # This is the key difference from DDPG's learn method
                 )
                 rollout_time += time.time() - rollout_start
 
@@ -291,6 +195,7 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
                 episode=self._cfgs.train_cfgs.eval_episodes,
                 agent=self._actor_critic,
                 logger=self._logger,
+                bypass_actor=True
             )
             eval_time = time.time() - eval_start
 
@@ -321,7 +226,6 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
             if (epoch + 1) % self._cfgs.logger_cfgs.save_model_freq == 0:
                 self._logger.torch_save()
 
-        print(f"episode returns are {self._logger.get_stats('Metrics/EpRet')}")
         ep_ret = self._logger.get_stats('Metrics/EpRet')[0]
         ep_cost = self._logger.get_stats('Metrics/EpCost')[0]
         ep_len = self._logger.get_stats('Metrics/EpLen')[0]
@@ -381,6 +285,9 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
                 self._update_actor(obs)
                 self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak)
 
+        # Run mini-batch sgd on the
+        # self._actor_critic.train_from_axiomatic_dataset(self._cfgs)
+
     def _update_reward_critic(
         self,
         obs: torch.Tensor,
@@ -389,107 +296,82 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
         done: torch.Tensor,
         next_obs: torch.Tensor,
     ) -> None:
-        """Update reward critic.
+        return
 
-        - Get the TD loss of reward critic.
-        - Update critic network by loss.
-        - Log useful information.
+    def _update_cost_critic(self, obs: torch.Tensor,
+                            act: torch.Tensor,
+                            cost: torch.Tensor,
+                            done: torch.Tensor,
+                            next_obs: torch.Tensor) -> None:
+        r"""Update value network under a double for loop.
 
-        Args:
-            obs (torch.Tensor): The ``observation`` sampled from buffer.
-            action (torch.Tensor): The ``action`` sampled from buffer.
-            reward (torch.Tensor): The ``reward`` sampled from buffer.
-            done (torch.Tensor): The ``terminated`` sampled from buffer.
-            next_obs (torch.Tensor): The ``next observation`` sampled from buffer.
-        """
-        with torch.no_grad():
-            next_action = self._actor_critic.actor.predict(next_obs, deterministic=True)
-            next_q_value_r = self._actor_critic.target_reward_critic(next_obs, next_action)[0]
-            target_q_value_r = reward + self._cfgs.algo_cfgs.gamma * (1 - done) * next_q_value_r
-        q_value_r = self._actor_critic.reward_critic(obs, action)[0]
-        loss = nn.functional.mse_loss(q_value_r, target_q_value_r)
+        The loss function is ``MSE loss``, which is defined in ``torch.nn.MSELoss``.
+        Specifically, the loss function is defined as:
 
-        if self._cfgs.algo_cfgs.use_critic_norm:
-            for param in self._actor_critic.reward_critic.parameters():
-                loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coeff
-        self._logger.store(
-            {
-                'Loss/Loss_reward_critic': loss.mean().item(),
-                'Value/reward_critic': q_value_r.mean().item(),
-            },
-        )
-        self._actor_critic.reward_critic_optimizer.zero_grad()
-        loss.backward()
+        .. math::
 
-        if self._cfgs.algo_cfgs.max_grad_norm:
-            clip_grad_norm_(
-                self._actor_critic.reward_critic.parameters(),
-                self._cfgs.algo_cfgs.max_grad_norm,
-            )
-        self._actor_critic.reward_critic_optimizer.step()
+            L = \frac{1}{N} \sum_{i=1}^N (\hat{V} - V)^2
 
-    def _update_cost_critic(
-        self,
-        obs: torch.Tensor,
-        action: torch.Tensor,
-        cost: torch.Tensor,
-        done: torch.Tensor,
-        next_obs: torch.Tensor,
-    ) -> None:
-        """Update cost critic.
+        where :math:`\hat{V}` is the predicted cost and :math:`V` is the target cost.
 
-        - Get the TD loss of cost critic.
-        - Update critic network by loss.
-        - Log useful information.
+        #. Compute the loss function.
+        #. Add the ``critic norm`` to the loss function if ``use_critic_norm`` is ``True``.
+        #. Clip the gradient if ``use_max_grad_norm`` is ``True``.
+        #. Update the network by loss function.
 
         Args:
             obs (torch.Tensor): The ``observation`` sampled from buffer.
-            action (torch.Tensor): The ``action`` sampled from buffer.
-            cost (torch.Tensor): The ``cost`` sampled from buffer.
-            done (torch.Tensor): The ``terminated`` sampled from buffer.
-            next_obs (torch.Tensor): The ``next observation`` sampled from buffer.
+            target_value_c (torch.Tensor): The ``target_value_c`` sampled from buffer.
         """
-        # TODO: Make this vectorized
-        # print('TODO: Update cost-critic should handle vectorized inputs')
-        next_action = []
-        with torch.no_grad():
-            for o_prime in next_obs:
-                next_a = self._actor_critic.step(o_prime, deterministic=True)
-                next_action.append(next_a)
-        next_action = torch.stack(next_action)
+        self._actor_critic.cost_critic_optimizer.zero_grad()
+        # Im adding this
+        value_c = self._actor_critic.cost_critic.assess_safety(obs, act)
 
-        with torch.no_grad():
-            next_q_value_c = self._actor_critic.target_cost_critic.assess_safety(next_obs, next_action)
-            target_q_value_c = torch.maximum(cost > 0, (1 - done) * next_q_value_c)
-        q_value_c = self._actor_critic.cost_critic.assess_safety(obs, action)
+        target_value_c = []
+        for o_prime in next_obs:
+            a, *_ = self._actor_critic.step(o_prime)
+            target_c = self._actor_critic.target_cost_critic.assess_safety(o_prime, a)
+            target_value_c.append(target_c)
 
-        loss = nn.functional.binary_cross_entropy(q_value_c, target_q_value_c)
+        # print('Training binary critic....')
+        # print(f'last cost_value has shape {target_c.shape}')
+        target_value_c = torch.stack(target_value_c) * (1 - done)
+        # print(f'target cost_value tensor has shape {target_value_c.shape}')
+
+        target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
+        unsafe_mask = target_value_c >= .5
+
+        loss = nn.functional.binary_cross_entropy(value_c[unsafe_mask], target_value_c[unsafe_mask])
 
         if self._cfgs.algo_cfgs.use_critic_norm:
             for param in self._actor_critic.cost_critic.parameters():
-                loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coeff
+                loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
 
-        self._actor_critic.cost_critic_optimizer.zero_grad()
         loss.backward()
 
-        if self._cfgs.algo_cfgs.max_grad_norm:
+        if self._cfgs.algo_cfgs.use_max_grad_norm:
             clip_grad_norm_(
                 self._actor_critic.cost_critic.parameters(),
                 self._cfgs.algo_cfgs.max_grad_norm,
             )
         self._actor_critic.cost_critic_optimizer.step()
 
-        self._logger.store(
-            {
-                'Loss/Loss_cost_critic': loss.mean().item(),
-                'Value/cost_critic': q_value_c.mean().item(),
-            },
-        )
+        axiomatic_loss = self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
+                                                                         logger=self._logger,
+                                                                         epochs=1,
+                                                                         batch_size=self._cfgs.algo_cfgs.batch_size)
+
+        self._logger.store({'Loss/Loss_cost_critic': loss.mean().item(),
+                            'Value/cost_critic': value_c.mean().item(),
+                            # 'Loss/axiomatic_loss': axiomatic_loss
+                            },
+                           )
 
     def _update_actor(  # pylint: disable=too-many-arguments
         self,
         obs: torch.Tensor,
     ) -> None:
+        return
         """Update actor.
 
         - Get the loss of actor.
@@ -540,8 +422,9 @@ class OffPolicyStaticBinaryCritic(BaseAlgo):
         Returns:
             The loss of pi/actor.
         """
-        action = self._actor_critic.actor.predict(obs, deterministic=True)
-        return -self._actor_critic.reward_critic(obs, action)[0].mean()
+        return torch.Tensor([0])
+        # action = self._actor_critic.actor.predict(obs, deterministic=True)
+        # return -self._actor_critic.reward_critic(obs, action)[0].mean()
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""

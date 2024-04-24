@@ -24,3 +24,4 @@ from omnisafe.adapter.saute_adapter import SauteAdapter
 from omnisafe.adapter.simmer_adapter import SimmerAdapter
 
 from omnisafe.adapter.onoffpolicy_adapter import OnOffPolicyAdapter
+from omnisafe.adapter.myoffpolicy_adapter import MyOffPolicyAdapter

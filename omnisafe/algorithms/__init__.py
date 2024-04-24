@@ -65,7 +65,7 @@ from omnisafe.algorithms.on_policy import (
 )
 
 # My algorithms
-from omnisafe.algorithms.my_algorithms import OffPolicyStaticBinaryCritic
+from omnisafe.algorithms.my_algorithms import UniformBinaryCritic, TRPOBinaryCritic, TRPOPenaltyBinaryCritic
 
 ALGORITHMS = {
     'on-policy': tuple(on_policy.__all__),

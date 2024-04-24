@@ -216,7 +216,6 @@ class TRPOBinaryCritic(TRPO):
         # TODO: right now this is updated after each epoch.
         self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak)
 
-
     def _update_cost_critic(self, obs: torch.Tensor, act: torch.Tensor,
                             next_obs: torch.Tensor, cost: torch.Tensor) -> None:
         r"""Update value network under a double for loop.

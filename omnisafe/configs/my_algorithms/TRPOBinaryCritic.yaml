@@ -69,7 +69,7 @@ defaults:
     # The sub-sampling rate of the observation
     fvp_sample_freq: 1
     # The soft update coefficient
-    polyak: 0.005
+    polyak: 1.0
 #    # The delay between updates of target network
 #    target_network_delay: 1
   # logger configurations
@@ -114,7 +114,7 @@ defaults:
       activation: tanh
       # learning rate
       lr: 0.001
-      # The cost critic
+    # The cost critic
     cost_critic:
       num_critics: 1
       # maximum 'resamples' of actions proposed by the actor, if the critic deems them unsafe
@@ -125,8 +125,8 @@ defaults:
       # safety critics are initialized with a 'safe' dataset, from environment resets and rnd actions
       initialization:
         # number of observation samples
-        o_samples: 1  # 1000
+        o_samples: 1000
         # number of action samples
         a_samples: 5
         # how many epochs to train for
-        epochs: 1  # 100
+        epochs: 100
