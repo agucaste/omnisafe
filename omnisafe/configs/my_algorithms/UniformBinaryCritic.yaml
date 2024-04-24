@@ -15,7 +15,7 @@
 
 defaults:
   # seed for random number generator
-  seed: 17
+  seed: 0
   # training configurations
   train_cfgs:
     # device to use for training, options: cpu, cuda, cuda:0, cuda:0,1, etc.
@@ -33,7 +33,7 @@ defaults:
   # algorithm configurations
   algo_cfgs:
     # number of steps to update the policy
-    steps_per_epoch: 500 # 2000
+    steps_per_epoch: 1000
     # number of steps per sample
     update_cycle: 1
     # number of iterations to update the policy
@@ -55,7 +55,7 @@ defaults:
     # critic norm coefficient
     critic_norm_coeff: 0.001
     # The soft update coefficient
-    polyak: 0.005
+    polyak: 1  # 0.005
     # The discount factor of GAE
     gamma: 0.99
     # Actor perdorm random action before `start_learning_steps` steps

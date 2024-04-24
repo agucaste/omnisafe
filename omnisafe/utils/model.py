@@ -40,6 +40,8 @@ def initialize_layer(init_function: InitFunction, layer: nn.Linear) -> None:
         nn.init.xavier_uniform_(layer.weight)
     elif init_function == 'orthogonal':
         nn.init.orthogonal_(layer.weight, gain=np.sqrt(2))
+    elif init_function == 'zeros':
+        nn.init.zeros_(layer.weight)
     else:
         raise TypeError(f'Invalid initialization function: {init_function}')
 

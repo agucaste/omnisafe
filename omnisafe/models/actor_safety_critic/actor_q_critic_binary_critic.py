@@ -238,6 +238,8 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         # Sync parameters with cost_critics
         del self.target_cost_critic
         self.target_cost_critic = deepcopy(self.cost_critic)
+        for param in self.target_cost_critic.parameters():
+            param.requires_grad = False
 
         plot_fp = logger._log_dir + '/binary_critic_init_loss.png'
         plt.figure()

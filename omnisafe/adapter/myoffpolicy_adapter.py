@@ -146,7 +146,8 @@ class MyOffPolicyAdapter(OnlineAdapter):
                 # This option samples a random action from the environment and filters it with the safety critic.
                 act, safety_idx, num_resamples = agent.pick_safe_action(self._current_obs, bypass_actor=True)
             else:
-                act, *_, safety_idx, num_resamples = agent.step(self._current_obs, deterministic=False)
+                raise (ValueError, 'use_rand_action should be True!')
+                act, safety_idx, num_resamples = agent.step(self._current_obs, deterministic=False)
             # print(f'action is {act}, of shape {act.shape}')
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
 
@@ -171,6 +172,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
             )
 
             self._current_obs = next_obs
+            # print(f'during data collection observation has shape {next_obs.shape}')
 
     def _log_value(
         self,

@@ -137,15 +137,118 @@ class UniformBinaryCritic(DDPG):
         )
 
     def _init_log(self) -> None:
-        super()._init_log()
-        self._logger.register_key('Loss/cost_critic_axiomatic')
-        self._logger.register_key('Metrics/NumResamples')  # number of action resamples per episode
-        self._logger.register_key('Metrics/NumInterventions')  # if an action is resampled that counts as an intervention
-        self._logger.register_key('Metrics/TestNumResamples')
-        self._logger.register_key('Metrics/TestNumInterventions')
+        # super()._init_log()
 
+        """Log info about epoch.
+
+        Taken from DDPG, with some modifications
+
+        +-------------------------+----------------------------------------------------------------------+
+        | Things to log           | Description                                                          |
+        +=========================+======================================================================+
+        | Train/Epoch             | Current epoch.                                                       |
+        +-------------------------+----------------------------------------------------------------------+
+        | Metrics/EpCost          | Average cost of the epoch.                                           |
+        +-------------------------+----------------------------------------------------------------------+
+        | Metrics/EpRet           | Average return of the epoch.                                         |
+        +-------------------------+----------------------------------------------------------------------+
+        | Metrics/EpLen           | Average length of the epoch.                                         |
+        +-------------------------+----------------------------------------------------------------------+
+        | Metrics/TestEpCost      | Average cost of the evaluate epoch.                                  |
+        +-------------------------+----------------------------------------------------------------------+
+        | Metrics/TestEpRet       | Average return of the evaluate epoch.                                |
+        +-------------------------+----------------------------------------------------------------------+
+        | Metrics/TestEpLen       | Average length of the evaluate epoch.                                |
+        +-------------------------+----------------------------------------------------------------------+
+        | Value/reward_critic     | Average value in :meth:`rollout` (from critic network) of the epoch. |
+        +-------------------------+----------------------------------------------------------------------+
+        | Values/cost_critic      | Average cost in :meth:`rollout` (from critic network) of the epoch.  |
+        +-------------------------+----------------------------------------------------------------------+
+        | Loss/Loss_pi            | Loss of the policy network.                                          |
+        +-------------------------+----------------------------------------------------------------------+
+        | Loss/Loss_reward_critic | Loss of the reward critic.                                           |
+        +-------------------------+----------------------------------------------------------------------+
+        | Loss/Loss_cost_critic   | Loss of the cost critic network.                                     |
+        +-------------------------+----------------------------------------------------------------------+
+        | Train/LR                | Learning rate of the policy network.                                 |
+        +-------------------------+----------------------------------------------------------------------+
+        | Misc/Seed               | Seed of the experiment.                                              |
+        +-------------------------+----------------------------------------------------------------------+
+        | Misc/TotalEnvSteps      | Total steps of the experiment.                                       |
+        +-------------------------+----------------------------------------------------------------------+
+        | Time/Total              | Total time.                                                          |
+        +-------------------------+----------------------------------------------------------------------+
+        | Time/Rollout            | Rollout time.                                                        |
+        +-------------------------+----------------------------------------------------------------------+
+        | Time/Update             | Update time.                                                         |
+        +-------------------------+----------------------------------------------------------------------+
+        | Time/Evaluate           | Evaluate time.                                                       |
+        +-------------------------+----------------------------------------------------------------------+
+        | FPS                     | Frames per second of the epoch.                                      |
+        +-------------------------+----------------------------------------------------------------------+
+        """
+        self._logger: Logger = Logger(
+            output_dir=self._cfgs.logger_cfgs.log_dir,
+            exp_name=self._cfgs.exp_name,
+            seed=self._cfgs.seed,
+            use_tensorboard=self._cfgs.logger_cfgs.use_tensorboard,
+            use_wandb=self._cfgs.logger_cfgs.use_wandb,
+            config=self._cfgs,
+        )
+
+        self._logger.register_key('Metrics/EpRet', window_length=50)
+        self._logger.register_key('Metrics/EpCost', window_length=50)
+        self._logger.register_key('Metrics/EpLen', window_length=50)
+        "Begin mod ----->"
+        # number of action resamples per episode
+        self._logger.register_key('Metrics/NumResamples', window_length=50)
+        # if an action is resampled that counts as an intervention
+        self._logger.register_key('Metrics/NumInterventions', window_length=50)
+        "<------- End mod"
+
+        if self._cfgs.train_cfgs.eval_episodes > 0:
+            self._logger.register_key('Metrics/TestEpRet', window_length=50)
+            self._logger.register_key('Metrics/TestEpCost', window_length=50)
+            self._logger.register_key('Metrics/TestEpLen', window_length=50)
+            "Begin mod ----->"
+            self._logger.register_key('Metrics/TestNumResamples', window_length=50)
+            self._logger.register_key('Metrics/TestNumInterventions', window_length=50)
+            "<------- End mod"
+
+        self._logger.register_key('Train/Epoch')
+        self._logger.register_key('Train/LR')
+
+        self._logger.register_key('TotalEnvSteps')
+
+        if self._cfgs.algo_cfgs.use_cost:
+            # log information about cost critic
+            self._logger.register_key('Loss/Loss_cost_critic', delta=True)
+            self._logger.register_key('Value/cost_critic')
+            "Begin mod ----->"
+            self._logger.register_key('Loss/cost_critic_axiomatic')
+            "<------- End mod"
+
+        self._logger.register_key('Time/Total')
+        self._logger.register_key('Time/Rollout')
+        self._logger.register_key('Time/Update')
+        self._logger.register_key('Time/Evaluate')
+        self._logger.register_key('Time/Epoch')
+        self._logger.register_key('Time/FPS')
+
+        "Begin mod ----->"
         # TODO: Move this to another place! here it's ugly.
         self._actor_critic.initialize_cost_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
+
+        # Save cost-critic and the axiomatic dataset
+        what_to_save: dict[str, Any] = {'cost_critic': self._actor_critic.cost_critic,
+                                        'axiomatic_dataset': self._actor_critic.axiomatic_dataset}
+        if self._cfgs.algo_cfgs.obs_normalize:
+            obs_normalizer = self._env.save()['obs_normalizer']
+            what_to_save['obs_normalizer'] = obs_normalizer
+        "<------- End mod"
+        self._logger.setup_torch_saver(what_to_save)
+        self._logger.torch_save()
+
 
     def learn(self) -> tuple[float, float, float]:
         """
@@ -323,44 +426,69 @@ class UniformBinaryCritic(DDPG):
             obs (torch.Tensor): The ``observation`` sampled from buffer.
             target_value_c (torch.Tensor): The ``target_value_c`` sampled from buffer.
         """
+        # print(f'Updating cost critic with the following batch of data:\n'
+        #       f'obs = {obs.shape}\na = {act.shape}\ncost = {cost.shape}\n done={done.shape}\n next_obs={next_obs.shape}')
         self._actor_critic.cost_critic_optimizer.zero_grad()
         # Im adding this
         value_c = self._actor_critic.cost_critic.assess_safety(obs, act)
+        # print(f'value_c has shape {value_c.shape}')
 
-        target_value_c = []
-        for o_prime in next_obs:
-            a, *_ = self._actor_critic.step(o_prime)
-            target_c = self._actor_critic.target_cost_critic.assess_safety(o_prime, a)
-            target_value_c.append(target_c)
+        next_obs = next_obs.unsqueeze(1)  # [256, 1, 28]
 
-        # print('Training binary critic....')
-        # print(f'last cost_value has shape {target_c.shape}')
-        target_value_c = torch.stack(target_value_c) * (1 - done)
-        # print(f'target cost_value tensor has shape {target_value_c.shape}')
+        with torch.no_grad():
+            target_value_c = []
+            for o_prime in next_obs:  # each o_prime has shape [1, 28]
+                # print(f'o_prime has shape {o_prime.shape}')
+                a, *_ = self._actor_critic.step(o_prime, bypass_actor=True)
+                # print(f'action has shape {a.shape}')
+                target_c = self._actor_critic.target_cost_critic.assess_safety(o_prime, a)
+                target_value_c.append(target_c)
 
-        target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
-        unsafe_mask = target_value_c >= .5
+            # print(f'each value in target_value_c has shape {target_c.shape}')
+            # print(f'done has shape {done.shape}')
 
-        loss = nn.functional.binary_cross_entropy(value_c[unsafe_mask], target_value_c[unsafe_mask])
+            # print('Training binary critic....')
+            # print(f'last cost_value has shape {target_c.shape}')
+            target_value_c = torch.cat(target_value_c)
+            #TODO multiply by (1-done)
+            # print(f'target cost_value tensor has shape {target_value_c.shape}')
 
-        if self._cfgs.algo_cfgs.use_critic_norm:
-            for param in self._actor_critic.cost_critic.parameters():
-                loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
+            target_value_c = torch.maximum(target_value_c, cost)
+            assert torch.all(target_value_c <= 1)
+            # print(f"the shape of target_value_c is {target_value_c.shape}")
+            # print(f'the values of target_value_c are\n{target_value_c}')
 
-        loss.backward()
+            unsafe_mask = target_value_c >= .5
 
-        if self._cfgs.algo_cfgs.use_max_grad_norm:
-            clip_grad_norm_(
-                self._actor_critic.cost_critic.parameters(),
-                self._cfgs.algo_cfgs.max_grad_norm,
-            )
-        self._actor_critic.cost_critic_optimizer.step()
+            # print(f"the shape of unsafe mask is {unsafe_mask.shape}")
+            # print(f"the unsafe mask is {unsafe_mask}")
 
+        # print(f" the value_c is {value_c}")
+        # print(f'lhs of bellman: {value_c[unsafe_mask]}\nrhs of bellman: {target_value_c[unsafe_mask]}')
+
+        if torch.any(unsafe_mask):  # at least one 'unsafe' entry, train
+
+            loss = nn.functional.binary_cross_entropy(value_c[unsafe_mask], target_value_c[unsafe_mask])
+
+            if self._cfgs.algo_cfgs.use_critic_norm:
+                for param in self._actor_critic.cost_critic.parameters():
+                    loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
+
+            loss.backward()
+
+            if self._cfgs.algo_cfgs.use_max_grad_norm:
+                clip_grad_norm_(
+                    self._actor_critic.cost_critic.parameters(),
+                    self._cfgs.algo_cfgs.max_grad_norm,
+                )
+            self._actor_critic.cost_critic_optimizer.step()
+        else:
+            loss = torch.Tensor([0])
         axiomatic_loss = self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
                                                                          logger=self._logger,
                                                                          epochs=1,
                                                                          batch_size=self._cfgs.algo_cfgs.batch_size)
-
+        # print(f'loss is {loss}')
         self._logger.store({'Loss/Loss_cost_critic': loss.mean().item(),
                             'Value/cost_critic': value_c.mean().item(),
                             # 'Loss/axiomatic_loss': axiomatic_loss
