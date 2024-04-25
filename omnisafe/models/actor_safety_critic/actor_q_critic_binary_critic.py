@@ -107,7 +107,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
             )
 
         # Save the environment (this may be useful if one is stepping with a uniformly safe policy, see step() )
-        self._env = env
+        self.action_space = deepcopy(env.action_space)
         # The axiomatic dataset with 'safe' transitions, see initialize_cost_critic()
         self.axiomatic_dataset = {}
 
@@ -203,8 +203,8 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
             for o, a, y in dataloader:
                 self.cost_critic_optimizer.zero_grad()
                 # Compute bce loss
-                value = self.cost_critic.assess_safety(o, a)
-                loss = nn.functional.binary_cross_entropy(value, y)
+                values = self.cost_critic.forward(o, a)  # one per cost_critic
+                loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
                 # This mirrors 'cost_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.cost_critic.parameters():
@@ -287,6 +287,18 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         a, safety_idx, num_resamples = self.pick_safe_action(obs, deterministic, bypass_actor)
         return a, safety_idx, num_resamples
 
+    def predict(self, obs: torch.Tensor, deterministic: bool):
+        """This function is added for the purpose of the 'evaluator', after training.
+        TODO: currently this only works for the algorithm 'UniformBinaryCritic'
+        TODO: check that it works for any type of algorithm using an actor_q_critic_bc
+        """
+        # print(f' obs shape is {obs.shape}')
+        obs = obs.unsqueeze(0)
+        a, *_ = self.step(obs, deterministic=deterministic, bypass_actor=True)
+        # print(f' action shape is {a.shape}')
+        a = a.view(self.action_space.shape)
+        return a
+
     def pick_safe_action(self, obs: torch.Tensor,
                          deterministic: bool = False,
                          bypass_actor: bool =False) -> tuple[torch.Tensor, ...]:
@@ -318,7 +330,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 # pick an unfiltered action
                 if bypass_actor:
                     # Sample a random action from the environment
-                    a = torch.as_tensor(self._env._env.sample_action()[0], dtype=torch.float32).view(1, -1)
+                    a = torch.as_tensor(self.action_space.sample(), dtype=torch.float32).view(1, -1)
                 else:
                     # Use the actor to pick an action.
                     a = self.actor.predict(obs, deterministic=deterministic)
@@ -340,6 +352,20 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         a = actions[torch.argmin(safety_values)]
         return a, safety_index, num_resample.unsqueeze(-1)
 
+    def polyak_update(self, tau: float) -> None:
+        """Update the target network with polyak averaging.
+
+        Args:
+            tau (float): The polyak averaging factor.
+        """
+        # super().polyak_update(tau)
+        for target_param, param in zip(
+            self.target_cost_critic.parameters(),
+            self.cost_critic.parameters(),
+        ):
+            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+# TODO: Implement this to handle vectorized environments well.
     def pick_safe_action_vectorized(self, obs: torch.Tensor,
                          deterministic: bool = False,
                          bypass_actor: bool =False) -> tuple[torch.Tensor, ...]:
@@ -373,16 +399,3 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         num_resamples = torch.cat(num_resamples)
 
         return actions, safety_idxs, num_resamples
-
-    def polyak_update(self, tau: float) -> None:
-        """Update the target network with polyak averaging.
-
-        Args:
-            tau (float): The polyak averaging factor.
-        """
-        # super().polyak_update(tau)
-        for target_param, param in zip(
-            self.target_cost_critic.parameters(),
-            self.cost_critic.parameters(),
-        ):
-            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)

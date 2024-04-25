@@ -40,6 +40,7 @@ from omnisafe.envs.core import CMDP, make
 from omnisafe.envs.wrapper import ActionRepeat, ActionScale, ObsNormalize, TimeLimit
 from omnisafe.models.actor import ActorBuilder
 from omnisafe.models.actor_critic import ConstraintActorCritic, ConstraintActorQCritic
+from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic
 from omnisafe.models.base import Actor
 from omnisafe.utils.config import Config
 
@@ -290,6 +291,18 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
             )
             self._actor = actor_builder.build_actor(actor_type)
             self._actor.load_state_dict(model_params['pi'])
+
+            # Adding support for my algorithms.
+            if 'UniformBinaryCritic' in self._cfgs['algo']:
+                self._actor: ActorQCriticBinaryCritic = ActorQCriticBinaryCritic(
+                    obs_space=self._env.observation_space,
+                    act_space=self._env.action_space,
+                    model_cfgs=self._cfgs.model_cfgs,
+                    epochs=self._cfgs.train_cfgs.epochs,
+                    env=self._env
+                )
+                self._actor.actor.load_state_dict(model_params['pi'])
+                self._actor.cost_critic.load_state_dict(model_params['cost_critic'])
 
     # pylint: disable-next=too-many-locals
     def load_saved(

@@ -144,12 +144,18 @@ class MyOffPolicyAdapter(OnlineAdapter):
             if use_rand_action:
                 # Use bypass_actor option to sample an action.
                 # This option samples a random action from the environment and filters it with the safety critic.
+                print(f' current observation has shape {self._current_obs}')
                 act, safety_idx, num_resamples = agent.pick_safe_action(self._current_obs, bypass_actor=True)
+                print(f'hence current action has shape {act.shape}')
             else:
                 raise (ValueError, 'use_rand_action should be True!')
                 act, safety_idx, num_resamples = agent.step(self._current_obs, deterministic=False)
             # print(f'action is {act}, of shape {act.shape}')
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
+            print(f'picking safe action {act}')
+            # print(f'next_obs: {next_obs} of shape {next_obs.shape}\n'
+            print(f'r: {reward}; of shape {reward.shape}\n'
+                  f'cost: {cost}, of shape {cost.shape}\n info: {info}')
 
             self._log_value(reward=reward, cost=cost, info=info, num_resamples=num_resamples)
             real_next_obs = next_obs.clone()
@@ -196,6 +202,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
         self._ep_cost += info.get('original_cost', cost).cpu()
         self._ep_len += 1
         print(f'episode returns are {self._ep_ret}')
+        print(f'episode costs are {self._ep_cost}')
 
         self._num_resamples += num_resamples
         self._num_interventions += int(num_resamples > 0)

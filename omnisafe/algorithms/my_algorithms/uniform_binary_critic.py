@@ -241,7 +241,8 @@ class UniformBinaryCritic(DDPG):
 
         # Save cost-critic and the axiomatic dataset
         what_to_save: dict[str, Any] = {'cost_critic': self._actor_critic.cost_critic,
-                                        'axiomatic_dataset': self._actor_critic.axiomatic_dataset}
+                                        'axiomatic_dataset': self._actor_critic.axiomatic_dataset,
+                                        'pi': self._actor_critic.actor}
         if self._cfgs.algo_cfgs.obs_normalize:
             obs_normalizer = self._env.save()['obs_normalizer']
             what_to_save['obs_normalizer'] = obs_normalizer
