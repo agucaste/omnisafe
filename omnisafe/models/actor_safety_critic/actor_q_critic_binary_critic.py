@@ -113,6 +113,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
     def initialize_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         obs_samples = cfgs.model_cfgs.cost_critic.initialization.o_samples
         a_samples = cfgs.model_cfgs.cost_critic.initialization.a_samples
+        device = cfgs.train_cfgs.device
 
         print('Initializing classifiers...')
         obs, _ = env.reset()
@@ -128,9 +129,9 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 observations.append(o)
                 actions.append(a)
 
-        observations = torch.cat(observations, dim=0)
-        actions = torch.cat(actions, dim=0)
-        y = torch.zeros(size=(observations.shape[0],))
+        observations = torch.cat(observations, dim=0).to(device)
+        actions = torch.cat(actions, dim=0).to(device)
+        y = torch.zeros(size=(observations.shape[0],)).to(device)
 
         # Saving the dataset for future reference.
         self.axiomatic_dataset = {
