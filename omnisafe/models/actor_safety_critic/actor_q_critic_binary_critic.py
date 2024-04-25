@@ -26,6 +26,7 @@ from omnisafe.utils import distributed
 
 from omnisafe.models.actor_critic.constraint_actor_q_critic import ConstraintActorQCritic
 from omnisafe.models.base import Critic
+from omnisafe.models.critic.binary_critic import BinaryCritic
 from omnisafe.models.critic.critic_builder import CriticBuilder
 from omnisafe.typing import OmnisafeSpace
 from omnisafe.utils.config import ModelConfig, Config
@@ -80,7 +81,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         """Initialize an instance of :class:`ConstraintActorQCritic`."""
         super().__init__(obs_space, act_space, model_cfgs, epochs)
 
-        self.cost_critic: Critic = CriticBuilder(
+        self.cost_critic: BinaryCritic = CriticBuilder(
             obs_space=obs_space,
             act_space=act_space,
             hidden_sizes=model_cfgs.critic.hidden_sizes,
@@ -94,7 +95,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         print(f'max resample value for the binary critic is is {model_cfgs.cost_critic.max_resamples}')
         self.cost_critic.max_resamples = model_cfgs.cost_critic.max_resamples
 
-        self.target_cost_critic: Critic = deepcopy(self.cost_critic)
+        self.target_cost_critic: BinaryCritic = deepcopy(self.cost_critic)
         for param in self.target_cost_critic.parameters():
             param.requires_grad = False
         self.add_module('cost_critic', self.cost_critic)
@@ -110,24 +111,34 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         # The axiomatic dataset with 'safe' transitions, see initialize_cost_critic()
         self.axiomatic_dataset = {}
 
+        self.num_envs = None
+
     def initialize_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
+        # Extracting configurations for clarity
         obs_samples = cfgs.model_cfgs.cost_critic.initialization.o_samples
         a_samples = cfgs.model_cfgs.cost_critic.initialization.a_samples
         device = cfgs.train_cfgs.device
+        self.num_envs = cfgs.train_cfgs.vector_env_nums
+
+        # Checking if the number of environments divides the number of observations
+        assert obs_samples % self.num_envs == 0,\
+            'The number of environments must divide the number of observations for the axiomatic dataset'
+
+        # Calculating the adjusted number of observation samples per environment
+        obs_samples_per_env = obs_samples // self.num_envs
 
         print('Initializing classifiers...')
-        obs, _ = env.reset()
-        print(f'resetting the environment...\nobs shape is {obs.shape}')
-        print()
         observations = []
         actions = []
         print('Collecting data...')
-        for _ in trange(obs_samples):
-            o, _ = env.reset()
-            for _ in range(a_samples):
-                a = torch.tensor(env.action_space.sample(), dtype=torch.float).unsqueeze(0)
-                observations.append(o)
-                actions.append(a)
+        for _ in trange(obs_samples_per_env):
+            sampled_obs, _ = env.reset()
+            for o in sampled_obs:  # sampled_obs has shape [num_envs, dim(O)]
+                o = o.unsqueeze(0)
+                for _ in range(a_samples):
+                    a = torch.tensor(env.action_space.sample(), dtype=torch.float).unsqueeze(0)
+                    observations.append(o)
+                    actions.append(a)
 
         observations = torch.cat(observations, dim=0).to(device)
         actions = torch.cat(actions, dim=0).to(device)
@@ -178,6 +189,8 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
             self.axiomatic_dataset['act'],
             self.axiomatic_dataset['y']
         )
+        # print(f'observations are {obs}\nobs shape: {obs.shape}\nact are {act}\nact shape: {act.shape}\n'
+        #       f'y are {y}\ny has shape {y.shape}')
         dataloader = DataLoader(
             dataset=TensorDataset(obs, act, y),
             batch_size=batch_size,
@@ -305,7 +318,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 # pick an unfiltered action
                 if bypass_actor:
                     # Sample a random action from the environment
-                    a = torch.as_tensor(self._env._env.sample_action(), dtype=torch.float32).unsqueeze(0)
+                    a = torch.as_tensor(self._env._env.sample_action()[0], dtype=torch.float32).view(1, -1)
                 else:
                     # Use the actor to pick an action.
                     a = self.actor.predict(obs, deterministic=deterministic)
@@ -326,6 +339,40 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         safety_index = safety_values.min().unsqueeze(-1)
         a = actions[torch.argmin(safety_values)]
         return a, safety_index, num_resample.unsqueeze(-1)
+
+    def pick_safe_action_vectorized(self, obs: torch.Tensor,
+                         deterministic: bool = False,
+                         bypass_actor: bool =False) -> tuple[torch.Tensor, ...]:
+        """Pick a 'safe' action based on the observation.
+        A candidate action is proposed.
+            - if it is safe (measured by critics) it gets returned.
+            - If it is not, an action is resampled.
+        This process ends when:
+            - a safe action is found, or
+            - after a number of steps given by max_resamples.
+        In the latter case, the "safest" among the unsafe actions is returned.
+
+        Args:
+            obs (torch.tensor): The observation from environments.
+            deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
+            bypass_actor (bool, optional): Whether to bypass the actor all together and take a random sample from environment.
+                                           Useful for implementing a uniform policy.
+
+        Returns:
+            a: A candidate safe action, or the safest action among the samples.
+            safety_index: the safety index (between 0 (safe) and 1 (unsafe)).
+            num_resamples: the number of resamples done before a safe action was found.
+        """
+        print(f'obs has shape {obs}')
+        actions, safety_idxs, num_resamples = zip(
+            *[self.pick_safe_action(obs[e].unsqueeze(0), deterministic=deterministic, bypass_actor=bypass_actor)
+              for e in range(self.num_envs)]
+        )
+        actions = torch.cat(actions)
+        safety_idxs = torch.cat(safety_idxs)
+        num_resamples = torch.cat(num_resamples)
+
+        return actions, safety_idxs, num_resamples
 
     def polyak_update(self, tau: float) -> None:
         """Update the target network with polyak averaging.
