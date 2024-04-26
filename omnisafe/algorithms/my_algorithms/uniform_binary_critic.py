@@ -197,7 +197,7 @@ class UniformBinaryCritic(DDPG):
         )
 
         self._logger.register_key('Metrics/EpRet', window_length=50)
-        self._logger.register_key('Metrics/EpCost', window_length=50)
+        self._logger.register_key('Metrics/EpCost')  # , window_length=50)
         self._logger.register_key('Metrics/EpLen', window_length=50)
         "Begin mod ----->"
         # number of action resamples per episode
@@ -449,8 +449,12 @@ class UniformBinaryCritic(DDPG):
             unsafe_mask = target_value_c >= .5
 
         if torch.any(unsafe_mask):  # at least one 'unsafe' entry, train
-            # This applies one-sidedness
-            loss = nn.functional.binary_cross_entropy(value_c[unsafe_mask], target_value_c[unsafe_mask])
+            # Apply one-sided inequality:
+            # Step 1: filter out
+            value_c_filter = value_c[unsafe_mask]
+            target_value_c_filter = target_value_c[unsafe_mask]
+            # Step 2: compute loss for filtered values
+            loss = nn.functional.binary_cross_entropy(value_c_filter, target_value_c_filter)
             if self._cfgs.algo_cfgs.use_critic_norm:
                 for param in self._actor_critic.cost_critic.parameters():
                     loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
@@ -464,14 +468,17 @@ class UniformBinaryCritic(DDPG):
             self._actor_critic.cost_critic_optimizer.step()
         else:
             # No 'unsafe' entries found
-            loss = torch.Tensor([0])
+            loss, value_c_filter = torch.Tensor([[float('nan')],
+                                                 [float('nan')]])
+            # loss = torch.Tensor([0])
+            # value_c_filter = torch.Tensor([0])
         # Run one full pass of sgd on the axiomatic dataset
         self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
                                                         logger=self._logger,
                                                         epochs=1,
                                                         batch_size=self._cfgs.algo_cfgs.batch_size)
         self._logger.store({'Loss/Loss_cost_critic': loss.mean().item(),
-                            'Value/cost_critic': value_c.mean().item(),
+                            'Value/cost_critic': value_c_filter.mean().item(),
                             },
                            )
 
