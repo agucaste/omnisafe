@@ -115,7 +115,6 @@ class UniformBinaryCritic(DDPG):
         # for param in self._actor_critic.actor.net.parameters():
         #     param.data.zero_()
 
-
     def _init(self) -> None:
         """The initialization of the algorithm.
 
@@ -249,7 +248,6 @@ class UniformBinaryCritic(DDPG):
         "<------- End mod"
         self._logger.setup_torch_saver(what_to_save)
         self._logger.torch_save()
-
 
     def learn(self) -> tuple[float, float, float]:
         """
@@ -441,18 +439,23 @@ class UniformBinaryCritic(DDPG):
                 target_value_c.append(target_c)
 
             target_value_c = torch.cat(target_value_c)
-            #TODO multiply by (1-done)
+            # TODO multiply by (1-done)
             # print(f'target cost_value tensor has shape {target_value_c.shape}')
 
             target_value_c = torch.maximum(target_value_c, cost)
             assert torch.all(target_value_c <= 1)
-            unsafe_mask = target_value_c >= .5
+            # filtering_mask = target_value_c >= .5
 
-        if torch.any(unsafe_mask):  # at least one 'unsafe' entry, train
+            # Filter dataset:
+            filtering_mask = torch.logical_or(target_value_c >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
+                                              torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
+                                              )
+
+        if torch.any(filtering_mask):  # at least one 'unsafe' entry, train
             # Apply one-sided inequality:
             # Step 1: filter out
-            value_c_filter = value_c[unsafe_mask]
-            target_value_c_filter = target_value_c[unsafe_mask]
+            value_c_filter = value_c[filtering_mask]
+            target_value_c_filter = target_value_c[filtering_mask]
             # Step 2: compute loss for filtered values
             loss = nn.functional.binary_cross_entropy(value_c_filter, target_value_c_filter)
             if self._cfgs.algo_cfgs.use_critic_norm:
