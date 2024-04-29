@@ -112,12 +112,13 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         self.axiomatic_dataset = {}
 
         self.num_envs = None
+        self.device = None
 
     def initialize_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
         obs_samples = cfgs.model_cfgs.cost_critic.initialization.o_samples
         a_samples = cfgs.model_cfgs.cost_critic.initialization.a_samples
-        device = cfgs.train_cfgs.device
+        self.device = cfgs.train_cfgs.device
         self.num_envs = cfgs.train_cfgs.vector_env_nums
 
         # Checking if the number of environments divides the number of observations
@@ -140,9 +141,9 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                     observations.append(o)
                     actions.append(a)
 
-        observations = torch.cat(observations, dim=0).to(device)
-        actions = torch.cat(actions, dim=0).to(device)
-        y = torch.zeros(size=(observations.shape[0],)).to(device)
+        observations = torch.cat(observations, dim=0).to(self.device)
+        actions = torch.cat(actions, dim=0).to(self.device)
+        y = torch.zeros(size=(observations.shape[0],)).to(self.device)
 
         # Saving the dataset for future reference.
         self.axiomatic_dataset = {
@@ -330,7 +331,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 # pick an unfiltered action
                 if bypass_actor:
                     # Sample a random action from the environment
-                    a = torch.as_tensor(self.action_space.sample(), dtype=torch.float32).view(1, -1)
+                    a = torch.as_tensor(self.action_space.sample(), dtype=torch.float32).view(1, -1).to(self.device)
                 else:
                     # Use the actor to pick an action.
                     a = self.actor.predict(obs, deterministic=deterministic)
