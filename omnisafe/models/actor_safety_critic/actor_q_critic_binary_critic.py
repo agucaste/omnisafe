@@ -91,10 +91,6 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
             use_obs_encoder=False,
         ).build_critic('b')
 
-        # TODO: find a way to implement self.cost_critic.max_resamples.
-        print(f'max resample value for the binary critic is is {model_cfgs.cost_critic.max_resamples}')
-        self.cost_critic.max_resamples = model_cfgs.cost_critic.max_resamples
-
         self.target_cost_critic: BinaryCritic = deepcopy(self.cost_critic)
         for param in self.target_cost_critic.parameters():
             param.requires_grad = False

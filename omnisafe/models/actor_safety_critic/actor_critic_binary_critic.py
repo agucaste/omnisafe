@@ -91,13 +91,6 @@ class ActorCriticBinaryCritic(ActorCritic):
             use_obs_encoder=False,
         ).build_critic('b')
 
-        # # initialize the networks
-        # self.initialize_cost_critic(env=env, model_cfgs=model_cfgs)
-
-        # TODO: find a way to implement self.cost_critic.max_resamples.
-        print(f'max resample value for the binary critic is is {model_cfgs.cost_critic.max_resamples}')
-        self.cost_critic.max_resamples = model_cfgs.cost_critic.max_resamples
-
         self.target_cost_critic: Critic = deepcopy(self.cost_critic)
         for param in self.target_cost_critic.parameters():
             param.requires_grad = False
@@ -115,26 +108,35 @@ class ActorCriticBinaryCritic(ActorCritic):
         self.axiomatic_dataset = {}
 
     def initialize_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
+        # Extracting configurations for clarity
         obs_samples = cfgs.model_cfgs.cost_critic.initialization.o_samples
         a_samples = cfgs.model_cfgs.cost_critic.initialization.a_samples
+        self.device = cfgs.train_cfgs.device
+        self.num_envs = cfgs.train_cfgs.vector_env_nums
+
+        # Checking if the number of environments divides the number of observations
+        assert obs_samples % self.num_envs == 0, \
+            'The number of environments must divide the number of observations for the axiomatic dataset'
+
+        # Calculating the adjusted number of observation samples per environment
+        obs_samples_per_env = obs_samples // self.num_envs
 
         print('Initializing classifiers...')
-        obs, _ = env.reset()
-        print(f'resetting the environment...\nobs shape is {obs.shape}')
-        print()
         observations = []
         actions = []
         print('Collecting data...')
-        for _ in trange(obs_samples):
-            o, _ = env.reset()
-            for _ in range(a_samples):
-                a = torch.tensor(env.action_space.sample(), dtype=torch.float).unsqueeze(0)
-                observations.append(o)
-                actions.append(a)
+        for _ in trange(obs_samples_per_env):
+            sampled_obs, _ = env.reset()
+            for o in sampled_obs:  # sampled_obs has shape [num_envs, dim(O)]
+                o = o.unsqueeze(0)
+                for _ in range(a_samples):
+                    a = torch.tensor(env.action_space.sample(), dtype=torch.float).unsqueeze(0)
+                    observations.append(o)
+                    actions.append(a)
 
-        observations = torch.cat(observations, dim=0)
-        actions = torch.cat(actions, dim=0)
-        y = torch.zeros(size=(observations.shape[0],))
+        observations = torch.cat(observations, dim=0).to(self.device)
+        actions = torch.cat(actions, dim=0).to(self.device)
+        y = torch.zeros(size=(observations.shape[0],)).to(self.device)
 
         # Saving the dataset for future reference.
         self.axiomatic_dataset = {
@@ -181,6 +183,8 @@ class ActorCriticBinaryCritic(ActorCritic):
             self.axiomatic_dataset['act'],
             self.axiomatic_dataset['y']
         )
+        # print(f'observations are {obs}\nobs shape: {obs.shape}\nact are {act}\nact shape: {act.shape}\n'
+        #       f'y are {y}\ny has shape {y.shape}')
         dataloader = DataLoader(
             dataset=TensorDataset(obs, act, y),
             batch_size=batch_size,
@@ -193,8 +197,8 @@ class ActorCriticBinaryCritic(ActorCritic):
             for o, a, y in dataloader:
                 self.cost_critic_optimizer.zero_grad()
                 # Compute bce loss
-                value = self.cost_critic.assess_safety(o, a)
-                loss = nn.functional.binary_cross_entropy(value, y)
+                values = self.cost_critic.forward(o, a)  # one per cost_critic
+                loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
                 # This mirrors 'cost_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.cost_critic.parameters():
@@ -214,7 +218,7 @@ class ActorCriticBinaryCritic(ActorCritic):
                 losses.append(loss.mean().item())
         return losses
 
-    def initialize_cost_critic(self, env: OnOffPolicyAdapter, cfgs: Config, logger:Logger) -> None:
+    def initialize_cost_critic(self, env: OnOffPolicyAdapter, cfgs: Config, logger: Logger) -> None:
         """
         Initializes the classifiers with "safe" data points.
         Builds a dataset of "safe" tuples {(o_i, a_i, y_i=0)}_i:
@@ -242,6 +246,8 @@ class ActorCriticBinaryCritic(ActorCritic):
         # Sync parameters with cost_critics
         del self.target_cost_critic
         self.target_cost_critic = deepcopy(self.cost_critic)
+        for param in self.target_cost_critic.parameters():
+            param.requires_grad = False
 
         plot_fp = logger._log_dir + '/binary_critic_init_loss.png'
         plt.figure()
