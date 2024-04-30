@@ -265,9 +265,14 @@ class TRPOBinaryCritic(TRPO):
         # print(f'target cost_value tensor has shape {target_value_c.shape}')
 
         target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
-        unsafe_mask = target_value_c >= .5
+        # filtering_mask = target_value_c >= .5
 
-        loss = nn.functional.binary_cross_entropy(value_c[unsafe_mask], target_value_c[unsafe_mask])
+        # Filter dataset (04/30/24):
+        filtering_mask = torch.logical_or(target_value_c >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
+                                          torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
+                                          )
+
+        loss = nn.functional.binary_cross_entropy(value_c[filtering_mask], target_value_c[filtering_mask])
 
         if self._cfgs.algo_cfgs.use_critic_norm:
             for param in self._actor_critic.cost_critic.parameters():
