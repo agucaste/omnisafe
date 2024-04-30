@@ -40,7 +40,7 @@ from omnisafe.envs.core import CMDP, make
 from omnisafe.envs.wrapper import ActionRepeat, ActionScale, ObsNormalize, TimeLimit
 from omnisafe.models.actor import ActorBuilder
 from omnisafe.models.actor_critic import ConstraintActorCritic, ConstraintActorQCritic
-from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic
+from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic, ActorCriticBinaryCritic
 from omnisafe.models.base import Actor
 from omnisafe.utils.config import Config
 
@@ -304,6 +304,17 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
                 self._actor.actor.load_state_dict(model_params['pi'])
                 self._actor.cost_critic.load_state_dict(model_params['cost_critic'])
 
+            if 'TRPOBinaryCritic' in self._cfgs['algo']:
+                self._actor: ActorCriticBinaryCritic = ActorCriticBinaryCritic(
+                    obs_space=self._env.observation_space,
+                    act_space=self._env.action_space,
+                    model_cfgs=self._cfgs.model_cfgs,
+                    epochs=self._cfgs.train_cfgs.epochs,
+                    env=self._env
+                )
+                self._actor.actor.load_state_dict(model_params['pi'])
+                self._actor.cost_critic.load_state_dict(model_params['cost_critic'])
+
     # pylint: disable-next=too-many-locals
     def load_saved(
         self,
@@ -373,6 +384,8 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
         episode_costs: list[float] = []
         episode_lengths: list[float] = []
 
+        # Adding the option to take 'random' actions (and filter them out by the safety critic)
+        deterministic = False if 'TRPOBinaryCritic' in self._cfgs['algo'] else True
         for episode in range(num_episodes):
             obs, _ = self._env.reset()
             self._safety_obs = torch.ones(1)
@@ -386,7 +399,7 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
                     if self._actor is not None:
                         act = self._actor.predict(
                             obs,
-                            deterministic=True,
+                            deterministic=deterministic,
                         )
                     elif self._planner is not None:
                         act = self._planner.output_action(

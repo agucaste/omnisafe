@@ -195,7 +195,7 @@ class TRPOBinaryCritic(TRPO):
             data['next_obs'],
             data['cost'],
         )
-        print(f'reward advantages are {adv_r}')
+        # print(f'reward advantages are {adv_r}')
         self._update_actor(obs, act, logp, adv_r, adv_c)
 
         dataloader = DataLoader(

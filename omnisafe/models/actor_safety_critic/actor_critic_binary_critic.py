@@ -104,6 +104,7 @@ class ActorCriticBinaryCritic(ActorCritic):
 
         # Save the environment (this may be useful if one is stepping with a uniformly safe policy, see step() )
         self._env = env
+        self.action_space = deepcopy(env.action_space)
         # The axiomatic dataset with 'safe' transitions, see initialize_cost_critic()
         self.axiomatic_dataset = {}
 
@@ -363,6 +364,17 @@ class ActorCriticBinaryCritic(ActorCritic):
         safety_index = safety_values.min().unsqueeze(-1)
         a = actions[torch.argmin(safety_values)]
         return a, safety_index, num_resample.unsqueeze(-1)
+
+    def predict(self, obs: torch.Tensor, deterministic: bool):
+        """This function is added for the purpose of the 'evaluator', after training.
+        Taken from 'actor_q_critic_binary_critic.py'
+        """
+        # print(f' obs shape is {obs.shape}')
+        obs = obs.unsqueeze(0)
+        a, *_ = self.step(obs, deterministic=deterministic, bypass_actor=False)
+        # print(f' action shape is {a.shape}')
+        a = a.view(self.action_space.shape)
+        return a
 
     def polyak_update(self, tau: float) -> None:
         """Update the target network with polyak averaging.

@@ -125,7 +125,7 @@ defaults:
       # safety critics are initialized with a 'safe' dataset, from environment resets and rnd actions
       initialization:
         # number of observation samples
-        o_samples: 1000
+        o_samples: 10  # 1000
         # number of action samples
         a_samples: 5
         # how many epochs to train for
