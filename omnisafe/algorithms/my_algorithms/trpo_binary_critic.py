@@ -35,6 +35,7 @@ from omnisafe.utils.tools import (
 from omnisafe.models.actor_safety_critic import ActorCriticBinaryCritic
 from omnisafe.adapter import OnOffPolicyAdapter
 from omnisafe.common.buffer.vector_onoffpolicy_buffer import VectorOnOffPolicyBuffer
+from typing import Any
 
 
 @registry.register
@@ -144,12 +145,22 @@ class TRPOBinaryCritic(TRPO):
 
     def _init_log(self) -> None:
         super()._init_log()
-        self._logger.register_key('Metrics/NumResamples')  # number of action resamples per episode
-        self._logger.register_key('Metrics/NumInterventions')  # if an action is resampled that counts as an intervention
-        self._logger.register_key('Loss/Loss_cost_critic_init')
+        self._logger.register_key('Metrics/NumResamples', window_length=50)  # number of action resamples per episode
+        self._logger.register_key('Metrics/NumInterventions', window_length=50)  # if an action is resampled that counts as an intervention
+        self._logger.register_key('Loss/cost_critic_axiomatic')
 
         # TODO: Move this to another place! here it's ugly.
         self._actor_critic.initialize_cost_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
+
+        # What things to save.
+        what_to_save: dict[str, Any] = {'pi': self._actor_critic.actor,
+                                        'cost_critic': self._actor_critic.cost_critic}
+        if self._cfgs.algo_cfgs.obs_normalize:
+            obs_normalizer = self._env.save()['obs_normalizer']
+            what_to_save['obs_normalizer'] = obs_normalizer
+
+        self._logger.setup_torch_saver(what_to_save)
+        self._logger.torch_save()
 
     def _update(self) -> None:
         """Update actor, critic.
