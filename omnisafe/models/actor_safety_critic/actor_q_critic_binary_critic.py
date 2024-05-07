@@ -331,8 +331,9 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         first_safe = (safety_index < .5).to(torch.uint8).argmax(dim=-1)
 
         chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
-        num_resamples = (first_safe + 1) * (count_safe > 0) + self.cost_critic.max_resamples * (count_safe == 0)
 
+        num_resamples = first_safe * (count_safe > 0) + self.cost_critic.max_resamples * (count_safe == 0)
+        # print(f'chosen_idx is {chosen_idx} and num_resamples is {num_resamples}')
         # print(f' chosen_idx: {chosen_idx}\n\n num_resamples: {num_resamples}')
         a = a[chosen_idx]
         safety_index = safety_index[torch.arange(batch_size), chosen_idx]
