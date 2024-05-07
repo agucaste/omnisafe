@@ -26,6 +26,7 @@ from torch.nn.utils.clip_grad import clip_grad_norm_
 
 from omnisafe.models.actor_critic.actor_critic import ActorCritic
 from omnisafe.models.base import Critic
+from omnisafe.models.critic.binary_critic import BinaryCritic
 from omnisafe.models.critic.critic_builder import CriticBuilder
 from omnisafe.typing import OmnisafeSpace
 from omnisafe.utils.config import ModelConfig, Config
@@ -81,7 +82,7 @@ class ActorCriticBinaryCritic(ActorCritic):
         """Initialize an instance of :class:`ConstraintActorCritic`."""
         super().__init__(obs_space, act_space, model_cfgs, epochs)
 
-        self.cost_critic: Critic = CriticBuilder(
+        self.cost_critic: BinaryCritic = CriticBuilder(
             obs_space=obs_space,
             act_space=act_space,
             hidden_sizes=model_cfgs.critic.hidden_sizes,
@@ -103,8 +104,8 @@ class ActorCriticBinaryCritic(ActorCritic):
             )
 
         # Save the environment (this may be useful if one is stepping with a uniformly safe policy, see step() )
-        self._env = env
-        self.action_space = deepcopy(env.action_space)
+        # self._env = env
+        # self.action_space = deepcopy(env.action_space)
         # The axiomatic dataset with 'safe' transitions, see initialize_cost_critic()
         self.axiomatic_dataset = {}
 
@@ -335,6 +336,36 @@ class ActorCriticBinaryCritic(ActorCritic):
             safety_index: the safety index (between 0 (safe) and 1 (unsafe)).
             num_resamples: the number of resamples done before a safe action was found.
         """
+        print(f'stepping into pick_safe_action....\n')
+
+        repeated_obs = self.repeat_obs(obs, self.cost_critic.num_resamples)  # (B*R, O)
+        a = self.actor.predict(repeated_obs, deterministic=deterministic)  # (B*R, A)
+        print(f'observation has shape {obs.shape}\nrepeated has shape {repeated_obs.shape}\nactions has shape {a.shape}')
+        # Filter out actions!
+        batch_size = obs.shape[0]  # B
+        safety_index = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
+                                                                                     self.cost_critic.num_resamples)
+
+        count_safe = torch.count_nonzero(safety_index < .5, dim=-1)  # (B, ) Number of 'safe' samples per observation.
+        safest = safety_index.argmin(dim=-1)  # (B, ) Safest action per observation.
+        first_safe = (safety_index < .5).argmax(dim=-1)
+
+        chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
+        num_resamples = (first_safe + 1) * (count_safe > 0) + self.cost_critic.num_resamples * (count_safe == 0)
+
+        return a[chosen_idx], safety_index[chosen_idx], num_resamples
+
+
+        # Need to:
+        # 1. for each b in B
+        #       - Look for 'first' element in b [0...R] that 'is safe'.
+        #       - Return that one.
+        # 2.    for each r in R
+        #
+
+
+
+
         actions = []
         safety_values = []
         # print('resampling ')
@@ -388,3 +419,9 @@ class ActorCriticBinaryCritic(ActorCritic):
             self.cost_critic.parameters(),
         ):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+    @staticmethod
+    def repeat_obs(obs, num_repeat):
+        num_obs = obs.shape[0]  # B
+        repeated_obs = obs.unsqueeze(1).repeat(1, num_repeat, 1).view(num_obs * num_repeat, -1)  # [B*R, O]
+        return repeated_obs

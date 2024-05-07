@@ -89,7 +89,7 @@ defaults:
     # weight initialization mode
     weight_initialization_mode: "kaiming_uniform"
     # actor type
-    actor_type: gaussian_learning
+    actor_type: uniform
     # linear learning rate decay
     linear_lr_decay: False
     # Configuration of Actor network

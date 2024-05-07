@@ -91,6 +91,8 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
             use_obs_encoder=False,
         ).build_critic('b')
 
+        self.cost_critic.max_resamples = model_cfgs.cost_critic.max_resamples
+
         self.target_cost_critic: BinaryCritic = deepcopy(self.cost_critic)
         for param in self.target_cost_critic.parameters():
             param.requires_grad = False
@@ -102,8 +104,6 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 lr=model_cfgs.critic.lr,
             )
 
-        # Save the environment (this may be useful if one is stepping with a uniformly safe policy, see step() )
-        self.action_space = deepcopy(env.action_space)
         # The axiomatic dataset with 'safe' transitions, see initialize_cost_critic()
         self.axiomatic_dataset = {}
 
@@ -264,8 +264,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         return
 
     def step(self, obs: torch.Tensor,
-             deterministic: bool = False,
-             bypass_actor: bool = False) -> tuple[torch.Tensor, ...]:
+             deterministic: bool = False) -> tuple[torch.Tensor, ...]:
         """Choose the action based on the observation. used in rollout without gradient.
 
         Actions are 'filtered out' by the binary_critic according to "pick_safe_action"
@@ -273,15 +272,13 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         Args:
             obs (torch.tensor): The observation from environments.
             deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
-            bypass_actor: whether to bypass the actor and sample randomly from the environment (
-            but filtering out by the critic!
             )
 
         Returns:
             The deterministic action if deterministic is True.
             Action with noise other wise.
         """
-        a, safety_idx, num_resamples = self.pick_safe_action(obs, deterministic, bypass_actor)
+        a, safety_idx, num_resamples = self.pick_safe_action(obs, deterministic)
         return a, safety_idx, num_resamples
 
     def predict(self, obs: torch.Tensor, deterministic: bool):
@@ -289,16 +286,15 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         TODO: currently this only works for the algorithm 'UniformBinaryCritic'
         TODO: check that it works for any type of algorithm using an actor_q_critic_bc
         """
-        # print(f' obs shape is {obs.shape}')
+        print(f' obs shape is {obs.shape}')
         obs = obs.unsqueeze(0)
-        a, *_ = self.step(obs, deterministic=deterministic, bypass_actor=True)
-        # print(f' action shape is {a.shape}')
-        a = a.view(self.action_space.shape)
+        a, *_ = self.step(obs, deterministic=deterministic)
+        print(f' action shape is {a.shape}')
+        a = a.view(self.actor._act_space.shape)
         return a
 
-    def pick_safe_action(self, obs: torch.Tensor,
-                         deterministic: bool = False,
-                         bypass_actor: bool =False) -> tuple[torch.Tensor, ...]:
+    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False
+                         ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
         A candidate action is proposed.
             - if it is safe (measured by critics) it gets returned.
@@ -311,43 +307,79 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         Args:
             obs (torch.tensor): The observation from environments.
             deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
-            bypass_actor (bool, optional): Whether to bypass the actor all together and take a random sample from environment.
-                                           Useful for implementing a uniform policy.
 
         Returns:
             a: A candidate safe action, or the safest action among the samples.
             safety_index: the safety index (between 0 (safe) and 1 (unsafe)).
             num_resamples: the number of resamples done before a safe action was found.
         """
-        actions = []
-        safety_values = []
-        # print('resampling ')
-        for num_resample in torch.arange(self.cost_critic.max_resamples, dtype=torch.float32):
-            with torch.no_grad():
-                # pick an unfiltered action
-                if bypass_actor:
-                    # Sample a random action from the environment
-                    a = torch.as_tensor(self.action_space.sample(), dtype=torch.float32).view(1, -1).to(self.device)
-                else:
-                    # Use the actor to pick an action.
-                    a = self.actor.predict(obs, deterministic=deterministic)
-                safety_index = self.cost_critic.assess_safety(obs, a)
-            # print(f'safety index is {safety_index}')
-            if safety_index < .5:
-                # found a safe action
-                self.safety_label = 0
-                self.safety_index = safety_index
-                return a, safety_index, num_resample.unsqueeze(-1)
-            else:
-                # keep looking
-                actions.append(a)
-                safety_values.append(safety_index)
-        # No safe actions were found, pick the "safest" among all.
-        actions = torch.stack(actions)
-        safety_values = torch.stack(safety_values)
-        safety_index = safety_values.min().unsqueeze(-1)
-        a = actions[torch.argmin(safety_values)]
-        return a, safety_index, num_resample.unsqueeze(-1)
+        # print(f'stepping into pick_safe_action....\n')
+
+        repeated_obs = self.repeat_obs(obs, self.cost_critic.max_resamples)  # (B*R, O)
+        with torch.no_grad():
+            a = self.actor.predict(repeated_obs, deterministic=deterministic)  # (B*R, A)
+        # print(
+        #     f'observation has shape {obs.shape}\nrepeated has shape {repeated_obs.shape}\nactions has shape {a.shape}')
+        # Filter out actions!
+        batch_size = obs.shape[0]  # B
+        with torch.no_grad():
+            safety_index = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
+                                                                                         self.cost_critic.max_resamples)
+        # print(f'safety_index is {safety_index}, has shape {safety_index.shape}')
+        count_safe = torch.count_nonzero(safety_index < .5, dim=-1)  # (B, ) Number of 'safe' samples per observation.
+        safest = safety_index.argmin(dim=-1)  # (B, ) Safest action per observation.
+        first_safe = (safety_index < .5).to(torch.uint8).argmax(dim=-1)
+
+        chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
+        num_resamples = (first_safe + 1) * (count_safe > 0) + self.cost_critic.max_resamples * (count_safe == 0)
+
+        # print(f' chosen_idx: {chosen_idx}\n\n num_resamples: {num_resamples}')
+        a = a[chosen_idx]
+        safety_index = safety_index[torch.arange(batch_size), chosen_idx]
+
+        # print(f' returning:\na: {a.shape}\ns_idx: {safety_index.shape}\n num_resamples: {num_resamples.shape}')
+        # print(f'num_resample is {num_resamples}')
+        return a, safety_index, num_resamples.unsqueeze(-1)
+
+
+
+
+        """
+        Unreachable code down here
+        """
+
+
+
+
+        # actions = []
+        # safety_values = []
+        # # print('resampling ')
+        # for num_resample in torch.arange(self.cost_critic.max_resamples, dtype=torch.float32):
+        #     with torch.no_grad():
+        #         # pick an unfiltered action
+        #         if bypass_actor:
+        #             # Sample a random action from the environment
+        #             a = torch.as_tensor(self.action_space.sample(), dtype=torch.float32).view(1, -1).to(self.device)
+        #         else:
+        #             # Use the actor to pick an action.
+        #             a = self.actor.predict(obs, deterministic=deterministic)
+        #         safety_index = self.cost_critic.assess_safety(obs, a)
+        #     # print(f'safety index is {safety_index}')
+        #     if safety_index < .5:
+        #         # found a safe action
+        #         self.safety_label = 0
+        #         self.safety_index = safety_index
+        #         return a, safety_index, num_resample.unsqueeze(-1)
+        #     else:
+        #         # keep looking
+        #         actions.append(a)
+        #         safety_values.append(safety_index)
+        # # No safe actions were found, pick the "safest" among all.
+        # actions = torch.stack(actions)
+        # safety_values = torch.stack(safety_values)
+        # safety_index = safety_values.min().unsqueeze(-1)
+        # a = actions[torch.argmin(safety_values)]
+        # return a, safety_index, num_resample.unsqueeze(-1)
 
     def polyak_update(self, tau: float) -> None:
         """Update the target network with polyak averaging.
@@ -396,3 +428,9 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         num_resamples = torch.cat(num_resamples)
 
         return actions, safety_idxs, num_resamples
+
+    @staticmethod
+    def repeat_obs(obs, num_repeat):
+        num_obs = obs.shape[0]  # B
+        repeated_obs = obs.unsqueeze(1).repeat(1, num_repeat, 1).view(num_obs * num_repeat, -1)  # [B*R, O]
+        return repeated_obs

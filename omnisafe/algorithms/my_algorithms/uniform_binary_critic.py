@@ -248,92 +248,6 @@ class UniformBinaryCritic(DDPG):
         self._logger.setup_torch_saver(what_to_save)
         self._logger.torch_save()
 
-    def learn(self) -> tuple[float, float, float]:
-        """
-        Only difference with respect to DDPG: when calling 'rollout', pass rand_action=True (Always!)
-        """
-        self._logger.log('INFO: Start training')
-        start_time = time.time()
-        step = 0
-        for epoch in range(self._epochs):
-            self._epoch = epoch
-            rollout_time = 0.0
-            update_time = 0.0
-            epoch_time = time.time()
-
-            for sample_step in range(
-                epoch * self._samples_per_epoch,
-                (epoch + 1) * self._samples_per_epoch,
-            ):
-                step = sample_step * self._update_cycle * self._cfgs.train_cfgs.vector_env_nums
-                print(f'step = {step}')
-                rollout_start = time.time()
-                # set noise for exploration
-                if self._cfgs.algo_cfgs.use_exploration_noise:
-                    self._actor_critic.actor.noise = self._cfgs.algo_cfgs.exploration_noise
-
-                # collect data from environment
-                self._env.rollout(
-                    rollout_step=self._update_cycle,
-                    agent=self._actor_critic,
-                    buffer=self._buf,
-                    logger=self._logger,
-                    use_rand_action=True,  # This is the key difference from DDPG's learn method
-                )
-                rollout_time += time.time() - rollout_start
-
-                # update parameters
-                update_start = time.time()
-                if step > self._cfgs.algo_cfgs.start_learning_steps:
-                    self._update()
-                # if we haven't updated the network, log 0 for the loss
-                else:
-                    self._log_when_not_update()
-                update_time += time.time() - update_start
-
-            eval_start = time.time()
-            self._env.eval_policy(
-                episode=self._cfgs.train_cfgs.eval_episodes,
-                agent=self._actor_critic,
-                logger=self._logger,
-                bypass_actor=True
-            )
-            eval_time = time.time() - eval_start
-
-            self._logger.store({'Time/Update': update_time})
-            self._logger.store({'Time/Rollout': rollout_time})
-            self._logger.store({'Time/Evaluate': eval_time})
-
-            if (
-                step > self._cfgs.algo_cfgs.start_learning_steps
-                and self._cfgs.model_cfgs.linear_lr_decay
-            ):
-                self._actor_critic.actor_scheduler.step()
-
-            self._logger.store(
-                {
-                    'TotalEnvSteps': step + 1,
-                    'Time/FPS': self._cfgs.algo_cfgs.steps_per_epoch / (time.time() - epoch_time),
-                    'Time/Total': (time.time() - start_time),
-                    'Time/Epoch': (time.time() - epoch_time),
-                    'Train/Epoch': epoch,
-                    'Train/LR': self._actor_critic.actor_scheduler.get_last_lr()[0],
-                },
-            )
-
-            self._logger.dump_tabular()
-
-            # save model to disk
-            if (epoch + 1) % self._cfgs.logger_cfgs.save_model_freq == 0:
-                self._logger.torch_save()
-
-        ep_ret = self._logger.get_stats('Metrics/EpRet')[0]
-        ep_cost = self._logger.get_stats('Metrics/EpCost')[0]
-        ep_len = self._logger.get_stats('Metrics/EpLen')[0]
-        self._logger.close()
-
-        return ep_ret, ep_cost, ep_len
-
     def _update(self) -> None:
         """Update actor, critic.
 
@@ -427,17 +341,22 @@ class UniformBinaryCritic(DDPG):
         self._actor_critic.cost_critic_optimizer.zero_grad()
         # Im adding this
         value_c = self._actor_critic.cost_critic.assess_safety(obs, act)
-
-        next_obs = next_obs.unsqueeze(1)  # [256, 1, 28]
+        # print(f'value_c has shape {value_c.shape}')
+        # next_obs = next_obs.unsqueeze(1)  # [256, 1, 28]
+        # print(f'next_obs has shape: {next_obs.shape}')
 
         with torch.no_grad():
             target_value_c = []
-            for o_prime in next_obs:  # each o_prime has shape [1, 28]
-                a, *_ = self._actor_critic.step(o_prime, bypass_actor=True)
-                target_c = self._actor_critic.target_cost_critic.assess_safety(o_prime, a)
-                target_value_c.append(target_c)
+            # TODO: This should be doing the min_a action across all possibles...
+            next_a, *_ = self._actor_critic.step(next_obs)
+            target_value_c = self._actor_critic.target_cost_critic.assess_safety(next_obs, next_a)
+            # for o_prime in next_obs:  # each o_prime has shape [1, 28]
+            #     a, *_ = self._actor_critic.step(o_prime, bypass_actor=True)
+            #     target_c = self._actor_critic.target_cost_critic.assess_safety(o_prime, a)
+            #     target_value_c.append(target_c)
+            # print(f'target_value_c has shape {target_value_c.shape}')
 
-            target_value_c = torch.cat(target_value_c)
+            # target_value_c = torch.cat(target_value_c)
             # TODO multiply by (1-done)
             # print(f'target cost_value tensor has shape {target_value_c.shape}')
 

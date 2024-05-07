@@ -153,6 +153,10 @@ class Actor(nn.Module, ABC):
             The log probability of action under the distribution.
         """
 
+    @property
+    def act_space(self):
+        return self._act_space
+
 
 class Critic(nn.Module, ABC):
     """An abstract class for critic.

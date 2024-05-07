@@ -15,8 +15,6 @@
 """My version of the OffPolicy Adapter.
    Modifications compared with the original one:
     - self.rollout():
-        if rand_action=True , passes 'bypass_actor' to the binary critic, signaling to take a random action and
-        filter it with the safety critic.
     - logs values: num_resamples and num_interventions.
     """
 
@@ -78,7 +76,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
         episode: int,
         agent: ActorCriticBinaryCritic,
         logger: Logger,
-        bypass_actor: bool = True
+        use_rand_action: bool = False  # for compatibility
     ) -> None:
         """Rollout the environment with deterministic agent action.
 
@@ -94,7 +92,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
 
             done = False
             while not done:
-                act, _, num_resamples = agent.step(obs, deterministic=True, bypass_actor=bypass_actor)
+                act, _, num_resamples = agent.step(obs, deterministic=True)
                 obs, reward, cost, terminated, truncated, info = self._eval_env.step(act)
                 obs, reward, cost, terminated, truncated = (
                     torch.as_tensor(x, dtype=torch.float32, device=self._device)
@@ -124,7 +122,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
         agent: ActorCriticBinaryCritic,
         buffer: VectorMyOffPolicyBuffer,
         logger: Logger,
-        use_rand_action: bool,
+        use_rand_action: bool = False
     ) -> None:
         """Rollout the environment and store the data in the buffer.
 
@@ -138,26 +136,17 @@ class MyOffPolicyAdapter(OnlineAdapter):
                 and cost critic.
             buffer (VectorOnPolicyBuffer): Vector on-policy buffer.
             logger (Logger): Logger, to log ``EpRet``, ``EpCost``, ``EpLen``.
-            use_rand_action (bool): Whether to use random action.
         """
         for _ in range(rollout_step):
-            if use_rand_action:
-                # Use bypass_actor option to sample an action.
-                # This option samples a random action from the environment and filters it with the safety critic.
-                # print(f' current observation has shape {self._current_obs}')
-                act, safety_idx, num_resamples = agent.pick_safe_action(self._current_obs, bypass_actor=True)
-                # print(f'hence current action has shape {act.shape}')
-            else:
-                raise (ValueError, 'use_rand_action should be True!')
-                act, safety_idx, num_resamples = agent.step(self._current_obs, deterministic=False)
-            # print(f'action is {act}, of shape {act.shape}')
+            act, safety_idx, num_resamples = agent.step(self._current_obs)
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
             # print(f'picking safe action {act}')
             # print(f'next_obs: {next_obs} of shape {next_obs.shape}\n'
             # print(f'r: {reward}; of shape {reward.shape}\n'
             #       f'cost: {cost}, of shape {cost.shape}\n info: {info}')
-
-            self._log_value(reward=reward, cost=cost, info=info, num_resamples=num_resamples)
+            # print(f'num_resampels: {num_resamples} of shape {num_resamples.shape}')
+            # print(f'safety index: {safety_idx}, of shape {safety_idx.shape}')
+            self._log_value(reward=reward, cost=cost, info=info, num_resamples=num_resamples.squeeze(0))
             real_next_obs = next_obs.clone()
             for idx, done in enumerate(torch.logical_or(terminated, truncated)):
                 if done:
@@ -201,8 +190,8 @@ class MyOffPolicyAdapter(OnlineAdapter):
         self._ep_ret += info.get('original_reward', reward).cpu()
         self._ep_cost += info.get('original_cost', cost).cpu()
         self._ep_len += 1
-        print(f'episode returns are {self._ep_ret}')
-        print(f'episode costs are {self._ep_cost}')
+        # print(f'episode returns are {self._ep_ret}')
+        # print(f'episode costs are {self._ep_cost}')
 
         self._num_resamples += num_resamples
         self._num_interventions += int(num_resamples > 0)
