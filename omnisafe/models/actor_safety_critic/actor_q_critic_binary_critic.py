@@ -128,12 +128,20 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         observations = []
         actions = []
         print('Collecting data...')
+
+        obs_low, obs_high = env.observation_space.low, env.observation_space.high
+        a_low, a_high = env.action_space.low, env.action_space.high
+        a_dim = env.action_space.shape[0]
+
+
         for _ in trange(obs_samples_per_env):
             sampled_obs, _ = env.reset()
             for o in sampled_obs:  # sampled_obs has shape [num_envs, dim(O)]
                 o = o.unsqueeze(0)
                 for _ in range(a_samples):
-                    a = torch.tensor(env.action_space.sample(), dtype=torch.float).unsqueeze(0)
+                    a = np.random.uniform(low=a_low, high=a_high, size=(1, a_dim)).astype(np.float32)
+                    a = torch.from_numpy(a)
+                    # a = torch.tensor(env.action_space.sample(), dtype=torch.float).unsqueeze(0)
                     observations.append(o)
                     actions.append(a)
 
@@ -293,7 +301,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         a = a.view(self.actor._act_space.shape)
         return a
 
-    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False
+    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, criterion: str = 'first',
                          ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
         A candidate action is proposed.
@@ -307,40 +315,59 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         Args:
             obs (torch.tensor): The observation from environments.
             deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
+            criterion (str): (Update 05/08/24)
+                            'first' or 'safest'. 'first' selects the first action that was deemed safe, 'safest' grabs
+                             the safest one among all the sampled ones.
 
         Returns:
             a: A candidate safe action, or the safest action among the samples.
             safety_index: the safety index (between 0 (safe) and 1 (unsafe)).
             num_resamples: the number of resamples done before a safe action was found.
         """
-        # print(f'stepping into pick_safe_action....\n')
-
+        print(f'\n\n\nEntering into pick_safe_action...')
+        # Repeat the observation to feed to the actor.
+        #                                                        Original obs is (B, O)
         repeated_obs = self.repeat_obs(obs, self.cost_critic.max_resamples)  # (B*R, O)
         with torch.no_grad():
             a = self.actor.predict(repeated_obs, deterministic=deterministic)  # (B*R, A)
-        # print(
-        #     f'observation has shape {obs.shape}\nrepeated has shape {repeated_obs.shape}\nactions has shape {a.shape}')
-        # Filter out actions!
+
+
         batch_size = obs.shape[0]  # B
+        print(f' batch size is {batch_size}')
         with torch.no_grad():
             safety_index = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
                                                                                          self.cost_critic.max_resamples)
         # print(f'safety_index is {safety_index}, has shape {safety_index.shape}')
         count_safe = torch.count_nonzero(safety_index < .5, dim=-1)  # (B, ) Number of 'safe' samples per observation.
+        print(f'count_safe is {count_safe}, w shape {count_safe.shape}')
         safest = safety_index.argmin(dim=-1)  # (B, ) Safest action per observation.
+        print(f' safety_indices are {safety_index}')
+        print(f'safest index is {safest}')
         first_safe = (safety_index < .5).to(torch.uint8).argmax(dim=-1)
+        print(f'first safe is {first_safe}')
 
-        chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
+        if criterion == 'first':
+            chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
+            num_resamples = first_safe * (count_safe > 0) + self.cost_critic.max_resamples * (count_safe == 0)
+        elif criterion == 'safest':
+            print(f' returning safest index!')
+            chosen_idx = safest
+            num_resamples = self.cost_critic.max_resamples * torch.ones_like(count_safe)
+        else:
+            raise (ValueError, f"criterion should be either 'first' or 'safest', not {criterion}")
 
-        num_resamples = first_safe * (count_safe > 0) + self.cost_critic.max_resamples * (count_safe == 0)
+        print(f'safest index is {safest}\n first_safe is {first_safe}\n chosen_idx is {chosen_idx}\n')
+
+
         # print(f'chosen_idx is {chosen_idx} and num_resamples is {num_resamples}')
         # print(f' chosen_idx: {chosen_idx}\n\n num_resamples: {num_resamples}')
         a = a[chosen_idx]
         safety_index = safety_index[torch.arange(batch_size), chosen_idx]
+        print(f'safety indices being returned are {safety_index}')
 
-        # print(f' returning:\na: {a.shape}\ns_idx: {safety_index.shape}\n num_resamples: {num_resamples.shape}')
-        # print(f'num_resample is {num_resamples}')
-        return a, safety_index, num_resamples.unsqueeze(-1)
+        print(f' returning:\na_shape: {a.shape}\ns_idx: {safety_index.shape}\n num_resamples: {num_resamples.shape}')
+        print(f'num_resample is {num_resamples}\n\n')
+        return a, safety_index, num_resamples
 
 
 

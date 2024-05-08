@@ -146,7 +146,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
             #       f'cost: {cost}, of shape {cost.shape}\n info: {info}')
             # print(f'num_resampels: {num_resamples} of shape {num_resamples.shape}')
             # print(f'safety index: {safety_idx}, of shape {safety_idx.shape}')
-            self._log_value(reward=reward, cost=cost, info=info, num_resamples=num_resamples.squeeze(0))
+            self._log_value(reward=reward, cost=cost, info=info, num_resamples=num_resamples)
             real_next_obs = next_obs.clone()
             for idx, done in enumerate(torch.logical_or(terminated, truncated)):
                 if done:
@@ -192,9 +192,11 @@ class MyOffPolicyAdapter(OnlineAdapter):
         self._ep_len += 1
         # print(f'episode returns are {self._ep_ret}')
         # print(f'episode costs are {self._ep_cost}')
-
+        print(f' logging value num_resamples={num_resamples}, of shape {num_resamples.shape}')
+        print(f'currently self_num_resamples = {self._num_resamples}')
         self._num_resamples += num_resamples
         self._num_interventions += int(num_resamples > 0)
+        print(f'updated self_num_resamples = {self._num_resamples}')
 
     def _log_metrics(self, logger: Logger, idx: int) -> None:
         """Log metrics, including ``EpRet``, ``EpCost``, ``EpLen``.

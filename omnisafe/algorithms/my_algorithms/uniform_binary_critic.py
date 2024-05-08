@@ -320,13 +320,6 @@ class UniformBinaryCritic(DDPG):
                             next_obs: torch.Tensor) -> None:
         r"""Update value network under a double for loop.
 
-        The loss function is ``MSE loss``, which is defined in ``torch.nn.MSELoss``.
-        Specifically, the loss function is defined as:
-
-        .. math::
-
-            L = \frac{1}{N} \sum_{i=1}^N (\hat{V} - V)^2
-
         where :math:`\hat{V}` is the predicted cost and :math:`V` is the target cost.
 
         #. Compute the loss function.
@@ -339,17 +332,18 @@ class UniformBinaryCritic(DDPG):
             target_value_c (torch.Tensor): The ``target_value_c`` sampled from buffer.
         """
         self._actor_critic.cost_critic_optimizer.zero_grad()
-        # Im adding this
+        # LHS of Bellman
         value_c = self._actor_critic.cost_critic.assess_safety(obs, act)
-        # print(f'value_c has shape {value_c.shape}')
-        # next_obs = next_obs.unsqueeze(1)  # [256, 1, 28]
-        # print(f'next_obs has shape: {next_obs.shape}')
-
+        print(f' value_c has shape {value_c.shape}')
         with torch.no_grad():
-            target_value_c = []
+            print(f'gathering rhs of bellman eqn...')
+            # target_value_c = []
             # TODO: This should be doing the min_a action across all possibles...
-            next_a, *_ = self._actor_critic.step(next_obs)
+            next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest')
+            print(f'next_obs has shape {next_obs.shape}\nnext_a has shape {next_a.shape}')
             target_value_c = self._actor_critic.target_cost_critic.assess_safety(next_obs, next_a)
+            print(f' target_value_c has shape {target_value_c.shape}')
+
             # for o_prime in next_obs:  # each o_prime has shape [1, 28]
             #     a, *_ = self._actor_critic.step(o_prime, bypass_actor=True)
             #     target_c = self._actor_critic.target_cost_critic.assess_safety(o_prime, a)
@@ -369,7 +363,8 @@ class UniformBinaryCritic(DDPG):
                                               torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
                                               )
 
-        if torch.any(filtering_mask):  # at least one 'unsafe' entry, train
+        if torch.any(filtering_mask):  # at least one filtered entry, train
+            print(f'running sgd on {torch.count_nonzero(filtering_mask)} samples')
             # Apply one-sided inequality:
             # Step 1: filter out
             value_c_filter = value_c[filtering_mask]
