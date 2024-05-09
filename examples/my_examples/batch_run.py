@@ -15,6 +15,7 @@
 """Example of training a policy from default config yaml with OmniSafe."""
 import omnisafe
 import torch
+import numpy as np
 import random
 import argparse
 from omnisafe.utils.tools import custom_cfgs_to_dict, update_dict
@@ -22,20 +23,19 @@ from omnisafe.utils.tools import custom_cfgs_to_dict, update_dict
 if __name__ == '__main__':
     env_id = 'SafetyPointCircle1-v0'
 
-    # if torch.cuda.is_available():
-    #     device = 'cuda:' + random.choice(['0', '1'])
-    #     custom_cfgs = {'train_cfgs': {'device': device}}
-    # else:
-    #     custom_cfgs = {}
-    #
-    #
-
-    # Always use cpu.
-    custom_cfgs = {}
+    if torch.cuda.is_available():
+        # Get the free and total memory on each device
+        mem_free, mem_total = zip(*[torch.cuda.mem_get_info(i) for i in range(torch.cuda.device_count())])
+        # Select device with the most free space
+        device_id = np.argmax(mem_free)
+        device = 'cuda:' + str(device_id)
+        custom_cfgs = {'train_cfgs': {'device': device}}
+    else:
+        custom_cfgs = {}
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=9, help='Seed parameter')
-    parser.add_argument('--torch_threads', type=int, default=32, help='Number of threads in torch')
+    parser.add_argument('--torch_threads', type=int, default=16, help='Number of threads in torch')
 
     args= parser.parse_args()
 
@@ -49,7 +49,7 @@ if __name__ == '__main__':
 
     custom_cfgs.update({})
 
-    agent = omnisafe.Agent('UniformBinaryCritic', env_id, custom_cfgs=custom_cfgs)
+    agent = omnisafe.Agent('TRPOBinaryCritic', env_id, custom_cfgs=custom_cfgs)
     agent.learn()
 
     agent.plot(smooth=1)
