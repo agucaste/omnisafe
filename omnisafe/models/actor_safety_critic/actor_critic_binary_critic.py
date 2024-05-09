@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch import nn
 from torch.nn.utils.clip_grad import clip_grad_norm_
 
-from omnisafe.models.actor_critic.actor_critic import ActorCritic
+from omnisafe.models.actor_critic.constraint_actor_critic import ConstraintActorCritic
 from omnisafe.models.base import Critic
 from omnisafe.models.critic.binary_critic import BinaryCritic
 from omnisafe.models.critic.critic_builder import CriticBuilder
@@ -43,7 +43,8 @@ import numpy as np
 
 from typing import Optional
 
-class ActorCriticBinaryCritic(ActorCritic):
+
+class ActorCriticBinaryCritic(ConstraintActorCritic):
     """ConstraintActorCritic is a wrapper around ActorCritic that adds a cost critic to the model.
 
     In OmniSafe, we combine the actor and critic into one this class.

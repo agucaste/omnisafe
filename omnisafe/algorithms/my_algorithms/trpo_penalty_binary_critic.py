@@ -89,10 +89,11 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         #     data['adv_r'],
         #     data['adv_c'],
         # )
-        obs, act, logp, target_value_r, adv_r, adv_c, next_obs, cost, safety_idx = (
+        obs, act, logp, target_value_r, target_value_c, adv_r, adv_c, next_obs, cost, safety_idx = (
             data['obs'],
             data['act'],
             data['logp'],
+            data['target_value_r'],
             data['target_value_c'],
             data['adv_r'],
             data['adv_c'],
@@ -104,7 +105,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         self._update_actor(obs, act, logp, adv_r, adv_c=adv_c, safety_idx=safety_idx)
 
         dataloader = DataLoader(
-            dataset=TensorDataset(obs, act, target_value_r, cost, next_obs),
+            dataset=TensorDataset(obs, act, target_value_r, target_value_c, cost, next_obs),
             batch_size=self._cfgs.algo_cfgs.batch_size,
             shuffle=True,
         )
@@ -114,12 +115,14 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
                 obs,
                 act,
                 target_value_r,
+                target_value_c,
                 cost,
                 next_obs
             ) in dataloader:
                 self._update_reward_critic(obs, target_value_r)
                 if self._cfgs.algo_cfgs.use_cost:
-                    self._update_cost_critic(obs, act, next_obs, cost)
+                    self._update_cost_critic(obs, target_value_c)
+                    self._update_binary_critic(obs, act, next_obs, cost)
 
         self._logger.store(
             {
@@ -137,6 +140,20 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         adv_c: torch.Tensor,
         safety_idx: torch.Tensor,
     ) -> None:
+        """
+        Only difference w.r.t. natural_pg is that :meth: _compute_adv_surrogate takes into account 'safety index'
+
+        Args:
+            obs ():
+            act ():
+            logp ():
+            adv_r ():
+            adv_c ():
+            safety_idx ():
+
+        Returns:
+
+        """
         self._fvp_obs = obs[:: self._cfgs.algo_cfgs.fvp_sample_freq]
         theta_old = get_flat_params_from(self._actor_critic.actor)
         self._actor_critic.actor.zero_grad()
@@ -218,11 +235,11 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         penalization = self._cfgs.algo_cfgs.adv_surrogate_type
 
         if penalization == 'naive':
-            adv_r = adv_r - coef * adv_c
+            adv_r -= coef * adv_c
         elif penalization == 'penalize_unsafe':
-            adv_r = adv_r - coef * adv_c * (safety_idx >= .5).to(safety_idx.dtype)
+            adv_r -= coef * adv_c * (safety_idx >= .5).to(safety_idx.dtype)
         elif penalization == 'penalize_safe':
-            adv_r = adv_r - coef * adv_c * (safety_idx < .5).to(safety_idx.dtype)
+            adv_r -= coef * adv_c * (safety_idx < .5).to(safety_idx.dtype)
         else:
             raise ValueError(f'Advantage surrogate type must be one of {surrogate_types}')
         return adv_r

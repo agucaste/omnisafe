@@ -115,11 +115,17 @@ defaults:
       activation: tanh
       # learning rate
       lr: 0.001
-      # The cost critic
+    # The cost critic
     cost_critic:
       num_critics: 1
-      max_resamples: 50
       hidden_sizes: [256, 256]
+      activation: tanh
+      lr: 0.001
+    # The cost critic
+    binary_critic:
+      num_critics: 1
+      max_resamples: 50
+      hidden_sizes: [ 256, 256 ]
       activation: tanh
       lr: 0.001
       initialization:
