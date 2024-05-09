@@ -88,6 +88,7 @@ class OnOffPolicyAdapter(OnlineAdapter):
         self._reset_log()
 
         obs, _ = self.reset()
+        print(f'rolling out for {steps_per_epoch}')
         for step in track(
             range(steps_per_epoch),
             description=f'Processing rollout for epoch: {logger.current_epoch}...',
@@ -125,13 +126,15 @@ class OnOffPolicyAdapter(OnlineAdapter):
                             logger.log(
                                 f'Warning: trajectory cut off when rollout by epoch at {self._ep_len[idx]} steps.',
                             )
-                            _, last_value_r, last_value_c, *_ = agent.step(obs[idx])
+                            _, last_value_r, last_value_c, *_ = agent.step(obs[idx].unsqueeze(0))
                         if time_out:
+                            # obz = info['final_observation'][idx]
+                            # print(f'obz is {obz}\n of shape {obz.shape}')
                             _, last_value_r, last_value_c, *_ = agent.step(
-                                info['final_observation'][idx],
+                                info['final_observation'][idx].unsqueeze(0),
                             )
-                        last_value_r = last_value_r.unsqueeze(0)
-                        last_value_c = last_value_c.unsqueeze(0)
+                        # last_value_r = last_value_r.unsqueeze(0)
+                        # last_value_c = last_value_c.unsqueeze(0)
 
                     if done or time_out:
                         self._log_metrics(logger, idx)

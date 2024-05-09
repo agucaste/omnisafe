@@ -41,7 +41,7 @@ from typing import Any
 @registry.register
 class TRPOBinaryCritic(TRPO):
     """
-    A combination of TRPO with a BinaryCritic as cost_critic.
+    A combination of TRPO with a BinaryCritic as binary_critic.
         - On-policy rollouts are collected in the same way as TRPO.
         - binary_critic update is via minimizing binary cross-entropy loss across the collected rollout.
 
@@ -52,7 +52,7 @@ class TRPOBinaryCritic(TRPO):
         - _update (taken from natural_pg)
             - our cost critic is: (s, a) -> [NN] -> b(s,a) network (instead of: (s) -> [NN] -> b(s)),
                 therefore the _update method is modified so as to "pass" actions to
-        - _update_cost_critic:
+        - _update_binary_critic:
             binary critic's update is via bce-loss.
 
     """
@@ -147,14 +147,15 @@ class TRPOBinaryCritic(TRPO):
         super()._init_log()
         self._logger.register_key('Metrics/NumResamples', window_length=50)  # number of action resamples per episode
         self._logger.register_key('Metrics/NumInterventions', window_length=50)  # if an action is resampled that counts as an intervention
-        self._logger.register_key('Loss/cost_critic_axiomatic')
+        self._logger.register_key('Loss/binary_critic_axiomatic')
+        self._logger.register_key('Loss/Loss_binary_critic')
 
         # TODO: Move this to another place! here it's ugly.
-        self._actor_critic.initialize_cost_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
+        self._actor_critic.initialize_binary_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
 
         # What things to save.
         what_to_save: dict[str, Any] = {'pi': self._actor_critic.actor,
-                                        'cost_critic': self._actor_critic.cost_critic}
+                                        'binary_critic': self._actor_critic.binary_critic}
         if self._cfgs.algo_cfgs.obs_normalize:
             obs_normalizer = self._env.save()['obs_normalizer']
             what_to_save['obs_normalizer'] = obs_normalizer
@@ -214,7 +215,7 @@ class TRPOBinaryCritic(TRPO):
             ) in dataloader:
                 self._update_reward_critic(obs, target_value_r)
                 if self._cfgs.algo_cfgs.use_cost:
-                    self._update_cost_critic(obs, act, next_obs, cost)
+                    self._update_binary_critic(obs, act, next_obs, cost)
 
         self._logger.store(
             {
@@ -227,7 +228,7 @@ class TRPOBinaryCritic(TRPO):
         # TODO: right now this is updated after each epoch.
         self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak)
 
-    def _update_cost_critic(self, obs: torch.Tensor, act: torch.Tensor,
+    def _update_binary_critic(self, obs: torch.Tensor, act: torch.Tensor,
                             next_obs: torch.Tensor, cost: torch.Tensor) -> None:
         r"""Update value network under a double for loop.
 
@@ -249,19 +250,27 @@ class TRPOBinaryCritic(TRPO):
             obs (torch.Tensor): The ``observation`` sampled from buffer.
             target_value_c (torch.Tensor): The ``target_value_c`` sampled from buffer.
         """
-        self._actor_critic.cost_critic_optimizer.zero_grad()
+        # print(f'Updating binary critic:\n'
+        #       f'obs: {obs.shape}\n'
+        #       f'act: {act.shape}\n'
+        #       f'next_obs: {next_obs.shape}\n'
+        #       )
+        self._actor_critic.binary_critic_optimizer.zero_grad()
         # Im adding this
-        value_c = self._actor_critic.cost_critic.assess_safety(obs, act)
+        value_c = self._actor_critic.binary_critic.assess_safety(obs, act)
 
-        target_value_c = []
-        for o_prime in next_obs:
-            a, *_ = self._actor_critic.step(o_prime)
-            target_c = self._actor_critic.target_cost_critic.assess_safety(o_prime, a)
-            target_value_c.append(target_c)
+        # target_value_c = []
+        # for o_prime in next_obs:
+        #     a, *_ = self._actor_critic.step(o_prime)
+        #     target_c = self._actor_critic.target_binary_critic.assess_safety(o_prime, a)
+        #     target_value_c.append(target_c)
+        with torch.no_grad():
+            next_a, *_ = self._actor_critic.pick_safe_action(next_obs)
+            target_value_c = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
 
         # print('Training binary critic....')
         # print(f'last cost_value has shape {target_c.shape}')
-        target_value_c = torch.stack(target_value_c)
+        # target_value_c = torch.stack(target_value_c)
         # print(f'target cost_value tensor has shape {target_value_c.shape}')
 
         target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
@@ -275,17 +284,17 @@ class TRPOBinaryCritic(TRPO):
         loss = nn.functional.binary_cross_entropy(value_c[filtering_mask], target_value_c[filtering_mask])
 
         if self._cfgs.algo_cfgs.use_critic_norm:
-            for param in self._actor_critic.cost_critic.parameters():
+            for param in self._actor_critic.binary_critic.parameters():
                 loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
 
         loss.backward()
 
         if self._cfgs.algo_cfgs.use_max_grad_norm:
             clip_grad_norm_(
-                self._actor_critic.cost_critic.parameters(),
+                self._actor_critic.binary_critic.parameters(),
                 self._cfgs.algo_cfgs.max_grad_norm,
             )
-        distributed.avg_grads(self._actor_critic.cost_critic)
-        self._actor_critic.cost_critic_optimizer.step()
+        distributed.avg_grads(self._actor_critic.binary_critic)
+        self._actor_critic.binary_critic_optimizer.step()
 
-        self._logger.store({'Loss/Loss_cost_critic': loss.mean().item()})
+        self._logger.store({'Loss/Loss_binary_critic': loss.mean().item()})

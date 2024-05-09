@@ -114,8 +114,8 @@ defaults:
       activation: tanh
       # learning rate
       lr: 0.001
-    # The cost critic
-    cost_critic:
+    # The binary critic
+    binary_critic:
       num_critics: 1
       # maximum 'resamples' of actions proposed by the actor, if the critic deems them unsafe
       max_resamples: 50

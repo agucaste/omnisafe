@@ -29,7 +29,7 @@ from omnisafe.adapter.online_adapter import OnlineAdapter
 from omnisafe.common.buffer import VectorOffPolicyBuffer
 from omnisafe.common.buffer.vector_myoffpolicy_buffer import VectorMyOffPolicyBuffer
 from omnisafe.common.logger import Logger
-from omnisafe.models.actor_safety_critic.actor_critic_binary_critic import ActorCriticBinaryCritic
+from omnisafe.models.actor_safety_critic.actor_q_critic_binary_critic import ActorQCriticBinaryCritic
 from omnisafe.utils.config import Config
 
 
@@ -74,7 +74,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
     def eval_policy(  # pylint: disable=too-many-locals
         self,
         episode: int,
-        agent: ActorCriticBinaryCritic,
+        agent: ActorQCriticBinaryCritic,
         logger: Logger,
         use_rand_action: bool = False  # for compatibility
     ) -> None:
@@ -119,7 +119,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
     def rollout(  # pylint: disable=too-many-locals
         self,
         rollout_step: int,
-        agent: ActorCriticBinaryCritic,
+        agent: ActorQCriticBinaryCritic,
         buffer: VectorMyOffPolicyBuffer,
         logger: Logger,
         use_rand_action: bool = False
@@ -192,11 +192,11 @@ class MyOffPolicyAdapter(OnlineAdapter):
         self._ep_len += 1
         # print(f'episode returns are {self._ep_ret}')
         # print(f'episode costs are {self._ep_cost}')
-        print(f' logging value num_resamples={num_resamples}, of shape {num_resamples.shape}')
-        print(f'currently self_num_resamples = {self._num_resamples}')
+        # print(f' logging value num_resamples={num_resamples}, of shape {num_resamples.shape}')
+        # print(f'currently self_num_resamples = {self._num_resamples}')
         self._num_resamples += num_resamples
         self._num_interventions += int(num_resamples > 0)
-        print(f'updated self_num_resamples = {self._num_resamples}')
+        # print(f'updated self_num_resamples = {self._num_resamples}')
 
     def _log_metrics(self, logger: Logger, idx: int) -> None:
         """Log metrics, including ``EpRet``, ``EpCost``, ``EpLen``.

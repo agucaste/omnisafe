@@ -67,7 +67,7 @@ class ActorCriticBinaryCritic(ActorCritic):
     Attributes:
         actor (Actor): The actor network.
         reward_critic (Critic): The critic network.
-        cost_critic (Critic): The critic network.
+        binary_critic (Critic): The critic network.
         std_schedule (Schedule): The schedule for the standard deviation of the Gaussian distribution.
     """
 
@@ -82,37 +82,37 @@ class ActorCriticBinaryCritic(ActorCritic):
         """Initialize an instance of :class:`ConstraintActorCritic`."""
         super().__init__(obs_space, act_space, model_cfgs, epochs)
 
-        self.cost_critic: BinaryCritic = CriticBuilder(
+        self.binary_critic: BinaryCritic = CriticBuilder(
             obs_space=obs_space,
             act_space=act_space,
             hidden_sizes=model_cfgs.critic.hidden_sizes,
             activation=model_cfgs.critic.activation,
             weight_initialization_mode=model_cfgs.weight_initialization_mode,
-            num_critics=model_cfgs.cost_critic.num_critics,
+            num_critics=model_cfgs.binary_critic.num_critics,
             use_obs_encoder=False,
         ).build_critic('b')
 
-        self.target_cost_critic: Critic = deepcopy(self.cost_critic)
-        for param in self.target_cost_critic.parameters():
+        self.target_binary_critic: Critic = deepcopy(self.binary_critic)
+        for param in self.target_binary_critic.parameters():
             param.requires_grad = False
-        self.add_module('cost_critic', self.cost_critic)
+        self.add_module('binary_critic', self.binary_critic)
         if model_cfgs.critic.lr is not None:
-            self.cost_critic_optimizer: optim.Optimizer
-            self.cost_critic_optimizer = optim.Adam(
-                self.cost_critic.parameters(),
+            self.binary_critic_optimizer: optim.Optimizer
+            self.binary_critic_optimizer = optim.Adam(
+                self.binary_critic.parameters(),
                 lr=model_cfgs.critic.lr,
             )
 
         # Save the environment (this may be useful if one is stepping with a uniformly safe policy, see step() )
         # self._env = env
         # self.action_space = deepcopy(env.action_space)
-        # The axiomatic dataset with 'safe' transitions, see initialize_cost_critic()
+        # The axiomatic dataset with 'safe' transitions, see initialize_binary_critic()
         self.axiomatic_dataset = {}
 
     def initialize_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
-        obs_samples = cfgs.model_cfgs.cost_critic.initialization.o_samples
-        a_samples = cfgs.model_cfgs.cost_critic.initialization.a_samples
+        obs_samples = cfgs.model_cfgs.binary_critic.initialization.o_samples
+        a_samples = cfgs.model_cfgs.binary_critic.initialization.a_samples
         self.device = cfgs.train_cfgs.device
         self.num_envs = cfgs.train_cfgs.vector_env_nums
 
@@ -170,13 +170,13 @@ class ActorCriticBinaryCritic(ActorCritic):
     Attributes:
         actor (Actor): The actor network.
         reward_critic (Critic): The critic network.
-        cost_critic (Critic): The critic network.
+        binary_critic (Critic): The critic network.
         std_schedule (Schedule): The schedule for the standard deviation of the Gaussian distribution.
 
 
         """
         if epochs is None:
-            epochs = cfgs.model_cfgs.cost_critic.initialization.epochs
+            epochs = cfgs.model_cfgs.binary_critic.initialization.epochs
         if batch_size is None:
             batch_size = cfgs.algo_cfgs.batch_size
 
@@ -197,30 +197,30 @@ class ActorCriticBinaryCritic(ActorCritic):
         for _ in range(epochs):
             # Get minibatch
             for o, a, y in dataloader:
-                self.cost_critic_optimizer.zero_grad()
+                self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
-                values = self.cost_critic.forward(o, a)  # one per cost_critic
+                values = self.binary_critic.forward(o, a)  # one per binary_critic
                 loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
-                # This mirrors 'cost_critic.update()' in TRPOBinaryCritic
+                # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
-                    for param in self.cost_critic.parameters():
+                    for param in self.binary_critic.parameters():
                         loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef
 
                 loss.backward()
 
                 if cfgs.algo_cfgs.use_max_grad_norm:
                     clip_grad_norm_(
-                        self.cost_critic.parameters(),
+                        self.binary_critic.parameters(),
                         cfgs.algo_cfgs.max_grad_norm,
                     )
-                distributed.avg_grads(self.cost_critic)
-                self.cost_critic_optimizer.step()
+                distributed.avg_grads(self.binary_critic)
+                self.binary_critic_optimizer.step()
                 # print(f'loss: {loss.mean().item():.2f}')
-                logger.store({'Loss/cost_critic_axiomatic': loss.mean().item()})
+                logger.store({'Loss/binary_critic_axiomatic': loss.mean().item()})
                 losses.append(loss.mean().item())
         return losses
 
-    def initialize_cost_critic(self, env: OnOffPolicyAdapter, cfgs: Config, logger: Logger) -> None:
+    def initialize_binary_critic(self, env: OnOffPolicyAdapter, cfgs: Config, logger: Logger) -> None:
         """
         Initializes the classifiers with "safe" data points.
         Builds a dataset of "safe" tuples {(o_i, a_i, y_i=0)}_i:
@@ -245,10 +245,10 @@ class ActorCriticBinaryCritic(ActorCritic):
                                                    epochs=None,
                                                    batch_size=None)
 
-        # Sync parameters with cost_critics
-        del self.target_cost_critic
-        self.target_cost_critic = deepcopy(self.cost_critic)
-        for param in self.target_cost_critic.parameters():
+        # Sync parameters with binary_critics
+        del self.target_binary_critic
+        self.target_binary_critic = deepcopy(self.binary_critic)
+        for param in self.target_binary_critic.parameters():
             param.requires_grad = False
 
         plot_fp = logger._log_dir + '/binary_critic_init_loss.png'
@@ -266,7 +266,6 @@ class ActorCriticBinaryCritic(ActorCritic):
         self,
         obs: torch.Tensor,
         deterministic: bool = False,
-        bypass_actor: bool = False
     ) -> tuple[torch.Tensor, ...]:
         """Choose action based on observation.
 
@@ -281,13 +280,13 @@ class ActorCriticBinaryCritic(ActorCritic):
             value_c: The cost value of the observation.
             log_prob: The log probability of the action.
         """
+        # This avoids problems with a 'final observation'
         with torch.no_grad():
             value_r = self.reward_critic(obs)
-            # value_c = self.cost_critic(obs)
+            # value_c = self.binary_critic(obs)
             action, safety_index, num_resamples = self.pick_safe_action(obs=obs,
-                                                                        deterministic=deterministic,
-                                                                        bypass_actor=bypass_actor)
-            value_c = self.cost_critic.assess_safety(obs, action)
+                                                                        deterministic=deterministic)
+            value_c = self.binary_critic.assess_safety(obs, action)
             log_prob = self.actor.log_prob(action)
 
         # print(f"action: {action.shape}, value_r:{value_r[0].shape}, safety_index: {safety_index.shape}, resamples={num_resamples.shape}")
@@ -314,7 +313,7 @@ class ActorCriticBinaryCritic(ActorCritic):
         """
         return self.step(obs, deterministic=deterministic)
 
-    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, bypass_actor=False,
+    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False,
                          ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
         A candidate action is proposed.
@@ -328,32 +327,33 @@ class ActorCriticBinaryCritic(ActorCritic):
         Args:
             obs (torch.tensor): The observation from environments.
             deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
-            bypass_actor (bool, optional): Whether to bypass the actor all together and take a random sample from environment.
-                                           Useful for implementing a uniform policy.
 
         Returns:
             a: A candidate safe action, or the safest action among the samples.
             safety_index: the safety index (between 0 (safe) and 1 (unsafe)).
             num_resamples: the number of resamples done before a safe action was found.
         """
-        print(f'stepping into pick_safe_action....\n')
-
-        repeated_obs = self.repeat_obs(obs, self.cost_critic.num_resamples)  # (B*R, O)
-        a = self.actor.predict(repeated_obs, deterministic=deterministic)  # (B*R, A)
-        print(f'observation has shape {obs.shape}\nrepeated has shape {repeated_obs.shape}\nactions has shape {a.shape}')
-        # Filter out actions!
         batch_size = obs.shape[0]  # B
-        safety_index = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
-                                                                                     self.cost_critic.num_resamples)
-
-        count_safe = torch.count_nonzero(safety_index < .5, dim=-1)  # (B, ) Number of 'safe' samples per observation.
-        safest = safety_index.argmin(dim=-1)  # (B, ) Safest action per observation.
-        first_safe = (safety_index < .5).argmax(dim=-1)
+        # Repeat the observation to feed to the actor; original obs is (B, O)
+        repeated_obs = self.repeat_obs(obs, self.cost_critic.max_resamples)  # (B*R, O)
+        with torch.no_grad():
+            # Get the actions
+            a = self.actor.predict(repeated_obs, deterministic=deterministic).to(self.device)  # (B*R, A)
+            # Assess their safety
+            safety_val = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
+                                                                                       self.cost_critic.max_resamples)
+        count_safe = torch.count_nonzero(safety_val < .5, dim=-1)  # (B, ) Number of 'safe' samples per observation.
+        safest = safety_val.argmin(dim=-1)  # (B, )
+        first_safe = (safety_val < .5).to(torch.uint8).argmax(dim=-1)
 
         chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
-        num_resamples = (first_safe + 1) * (count_safe > 0) + self.cost_critic.num_resamples * (count_safe == 0)
+        num_resamples = first_safe * (count_safe > 0) + self.cost_critic.max_resamples * (count_safe == 0)
 
-        return a[chosen_idx], safety_index[chosen_idx], num_resamples
+        a = a.view(batch_size, self.cost_critic.max_resamples, -1)  # (B, R, A)
+        a = a[torch.arange(batch_size), chosen_idx]  # (B, A)
+        safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
+
+        return a, safety_val, num_resamples
 
 
         # Need to:
@@ -369,7 +369,7 @@ class ActorCriticBinaryCritic(ActorCritic):
         actions = []
         safety_values = []
         # print('resampling ')
-        for num_resample in torch.arange(self.cost_critic.max_resamples):
+        for num_resample in torch.arange(self.binary_critic.max_resamples):
             with torch.no_grad():
                 # pick an unfiltered action
                 if bypass_actor:
@@ -378,7 +378,7 @@ class ActorCriticBinaryCritic(ActorCritic):
                 else:
                     # Use the actor to pick an action.
                     a = self.actor.predict(obs, deterministic=deterministic)
-                safety_index = self.cost_critic.assess_safety(obs, a)
+                safety_index = self.binary_critic.assess_safety(obs, a)
             # print(f'safety index is {safety_index}')
             if safety_index < .5:
                 # found a safe action
@@ -415,8 +415,8 @@ class ActorCriticBinaryCritic(ActorCritic):
         """
         # super().polyak_update(tau)
         for target_param, param in zip(
-            self.target_cost_critic.parameters(),
-            self.cost_critic.parameters(),
+            self.target_binary_critic.parameters(),
+            self.binary_critic.parameters(),
         ):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 

@@ -334,15 +334,15 @@ class UniformBinaryCritic(DDPG):
         self._actor_critic.cost_critic_optimizer.zero_grad()
         # LHS of Bellman
         value_c = self._actor_critic.cost_critic.assess_safety(obs, act)
-        print(f' value_c has shape {value_c.shape}')
+        # print(f' value_c has shape {value_c.shape}')
         with torch.no_grad():
-            print(f'gathering rhs of bellman eqn...')
+            # print(f'gathering rhs of bellman eqn...')
             # target_value_c = []
             # TODO: This should be doing the min_a action across all possibles...
             next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest')
-            print(f'next_obs has shape {next_obs.shape}\nnext_a has shape {next_a.shape}')
+            # print(f'next_obs has shape {next_obs.shape}\nnext_a has shape {next_a.shape}')
             target_value_c = self._actor_critic.target_cost_critic.assess_safety(next_obs, next_a)
-            print(f' target_value_c has shape {target_value_c.shape}')
+            # print(f' target_value_c has shape {target_value_c.shape}')
 
             # for o_prime in next_obs:  # each o_prime has shape [1, 28]
             #     a, *_ = self._actor_critic.step(o_prime, bypass_actor=True)
@@ -364,7 +364,7 @@ class UniformBinaryCritic(DDPG):
                                               )
 
         if torch.any(filtering_mask):  # at least one filtered entry, train
-            print(f'running sgd on {torch.count_nonzero(filtering_mask)} samples')
+            # print(f'running sgd on {torch.count_nonzero(filtering_mask)} samples')
             # Apply one-sided inequality:
             # Step 1: filter out
             value_c_filter = value_c[filtering_mask]

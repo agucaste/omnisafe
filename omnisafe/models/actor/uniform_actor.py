@@ -17,6 +17,8 @@ Created from 'perturbation_actor'
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import warnings
+
 """Implementation of Perturbation Actor."""
 
 from typing import List
@@ -76,6 +78,10 @@ class UniformActor(Actor):
         Returns:
             torch.Tensor: Action, of shape (samples, dim)
         """
+        # if deterministic:
+        #     warnings.WarningMessage("deterministic=True ignored for actor class 'uniform_actor'")
+        assert len(obs.shape) == 2
+
         samples = obs.shape[0]
         act = np.random.uniform(low=self._low, high=self._high, size=(samples, self._act_dim)).astype(np.float32)
         act = torch.from_numpy(act)
