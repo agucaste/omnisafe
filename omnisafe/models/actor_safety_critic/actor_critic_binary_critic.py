@@ -335,21 +335,21 @@ class ActorCriticBinaryCritic(ActorCritic):
         """
         batch_size = obs.shape[0]  # B
         # Repeat the observation to feed to the actor; original obs is (B, O)
-        repeated_obs = self.repeat_obs(obs, self.cost_critic.max_resamples)  # (B*R, O)
+        repeated_obs = self.repeat_obs(obs, self.binary_critic.max_resamples)  # (B*R, O)
         with torch.no_grad():
             # Get the actions
             a = self.actor.predict(repeated_obs, deterministic=deterministic).to(self.device)  # (B*R, A)
             # Assess their safety
-            safety_val = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
-                                                                                       self.cost_critic.max_resamples)
+            safety_val = self.binary_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
+                                                                                       self.binary_critic.max_resamples)
         count_safe = torch.count_nonzero(safety_val < .5, dim=-1)  # (B, ) Number of 'safe' samples per observation.
         safest = safety_val.argmin(dim=-1)  # (B, )
         first_safe = (safety_val < .5).to(torch.uint8).argmax(dim=-1)
 
         chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
-        num_resamples = first_safe * (count_safe > 0) + self.cost_critic.max_resamples * (count_safe == 0)
+        num_resamples = first_safe * (count_safe > 0) + self.binary_critic.max_resamples * (count_safe == 0)
 
-        a = a.view(batch_size, self.cost_critic.max_resamples, -1)  # (B, R, A)
+        a = a.view(batch_size, self.binary_critic.max_resamples, -1)  # (B, R, A)
         a = a[torch.arange(batch_size), chosen_idx]  # (B, A)
         safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
 
