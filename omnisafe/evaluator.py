@@ -313,7 +313,7 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
                     env=self._env
                 )
                 self._actor.actor.load_state_dict(model_params['pi'])
-                self._actor.cost_critic.load_state_dict(model_params['cost_critic'])
+                self._actor.cost_critic.load_state_dict(model_params['binary_critic'])
 
     # pylint: disable-next=too-many-locals
     def load_saved(
