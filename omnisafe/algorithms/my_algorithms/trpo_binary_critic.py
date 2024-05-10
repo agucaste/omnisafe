@@ -217,6 +217,12 @@ class TRPOBinaryCritic(TRPO):
                 if self._cfgs.algo_cfgs.use_cost:
                     self._update_binary_critic(obs, act, next_obs, cost)
 
+            # Run one full pass of sgd on the axiomatic dataset
+            self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
+                                                            logger=self._logger,
+                                                            epochs=1,
+                                                            batch_size=self._cfgs.algo_cfgs.batch_size)
+
         self._logger.store(
             {
                 'Train/StopIter': self._cfgs.algo_cfgs.update_iters,

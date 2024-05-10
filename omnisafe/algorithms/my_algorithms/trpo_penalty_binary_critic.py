@@ -70,25 +70,11 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         """Update actor, critic.
 
         .. hint::
-            Here are some differences between NPG and Policy Gradient (PG): In PG, the actor network
-            and the critic network are updated together. When the KL divergence between the old
-            policy, and the new policy is larger than a threshold, the update is rejected together.
-
-            In NPG, the actor network and the critic network are updated separately. When the KL
-            divergence between the old policy, and the new policy is larger than a threshold, the
-            update of the actor network is rejected, but the update of the critic network is still
-            accepted.
+            Only difference w.r.t. trpo_binary_critic is that:
+                1.  the cost_critic (v_c) is also updated.
+                2.  we pass to _update_actor 'safety_idx', which is then used to compute_adv_surrogate.
         """
         data = self._buf.get()
-        # obs, act, logp, target_value_r, target_value_c, adv_r, adv_c = (
-        #     data['obs'],
-        #     data['act'],
-        #     data['logp'],
-        #     data['target_value_r'],
-        #     data['target_value_c'],
-        #     data['adv_r'],
-        #     data['adv_c'],
-        # )
         obs, act, logp, target_value_r, target_value_c, adv_r, adv_c, next_obs, cost, safety_idx = (
             data['obs'],
             data['act'],
@@ -124,6 +110,12 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
                     self._update_cost_critic(obs, target_value_c)
                     self._update_binary_critic(obs, act, next_obs, cost)
 
+            # Run one full pass of sgd on the axiomatic dataset
+            self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
+                                                            logger=self._logger,
+                                                            epochs=1,
+                                                            batch_size=self._cfgs.algo_cfgs.batch_size)
+
         self._logger.store(
             {
                 'Train/StopIter': self._cfgs.algo_cfgs.update_iters,
@@ -157,7 +149,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         self._fvp_obs = obs[:: self._cfgs.algo_cfgs.fvp_sample_freq]
         theta_old = get_flat_params_from(self._actor_critic.actor)
         self._actor_critic.actor.zero_grad()
-        adv = self._compute_adv_surrogate(adv_r, adv_c, safety_idx)
+        adv = self._compute_adv_surrogate(adv_r, adv_c, safety_idx)  # This method is different! safety_idx used.
         loss = self._loss_pi(obs, act, logp, adv)
         loss_before = distributed.dist_avg(loss)
         p_dist = self._actor_critic.actor(obs)
