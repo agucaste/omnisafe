@@ -304,7 +304,7 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
                 self._actor.actor.load_state_dict(model_params['pi'])
                 self._actor.cost_critic.load_state_dict(model_params['cost_critic'])
 
-            if 'TRPOBinaryCritic' in self._cfgs['algo']:
+            if 'TRPOBinaryCritic' in self._cfgs['algo'] or 'TRPOPenaltyBinaryCritic':
                 self._actor: ActorCriticBinaryCritic = ActorCriticBinaryCritic(
                     obs_space=self._env.observation_space,
                     act_space=self._env.action_space,
