@@ -49,7 +49,7 @@ if __name__ == '__main__':
 
     custom_cfgs.update({})
 
-    agent = omnisafe.Agent('TRPOBinaryCritic', env_id, custom_cfgs=custom_cfgs)
+    agent = omnisafe.Agent('TRPOPenaltyBinaryCritic', env_id, custom_cfgs=custom_cfgs)
     agent.learn()
 
     agent.plot(smooth=1)
