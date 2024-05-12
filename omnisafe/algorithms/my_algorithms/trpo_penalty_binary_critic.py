@@ -113,8 +113,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
             # Run one full pass of sgd on the axiomatic dataset
             self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
                                                             logger=self._logger,
-                                                            epochs=1,
-                                                            batch_size=self._cfgs.algo_cfgs.batch_size)
+                                                            epochs=1,)
 
         self._logger.store(
             {
@@ -208,6 +207,8 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
                     adv_r <- adv_r - M * adv_c * 1{b(s,a) == 1}
             3. 'penalize_safe':
                     adv_r <- adv_r - M * adv_c * 1{b(s,a) == 0}
+            4. 'penalize_unsafe_samples'
+                adv_r <- adv_r - M * sum_{i=1}^{max_resamples} 1 {b(s, a_i) > .5}
         In all three cases "M" is a fixed penalization constant.
 
         Args:
@@ -223,7 +224,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         """
         coef = self._cfgs.algo_cfgs.adv_surrogate_penalty
 
-        surrogate_types = ['naive', 'penalize_unsafe', 'penalize_safe']
+        surrogate_types = ['naive', 'penalize_unsafe', 'penalize_safe', 'penalize_unsafe_samples']
         penalization = self._cfgs.algo_cfgs.adv_surrogate_type
 
         if penalization == 'naive':
@@ -232,6 +233,9 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
             adv_r -= coef * adv_c * (safety_idx >= .5).to(safety_idx.dtype)
         elif penalization == 'penalize_safe':
             adv_r -= coef * adv_c * (safety_idx < .5).to(safety_idx.dtype)
+        elif penalization == 'penalize_unsafe_samples':
+            # In this case 'safety_idx' actually has the fraction of unsafe actions sampled w/ actor.
+            adv_r -= coef * safety_idx
         else:
             raise ValueError(f'Advantage surrogate type must be one of {surrogate_types}')
         return adv_r

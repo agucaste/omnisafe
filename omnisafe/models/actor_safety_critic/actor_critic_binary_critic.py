@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import sys
+from time import time
 
 import torch
 from torch import optim
@@ -141,18 +143,16 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         actions = torch.cat(actions, dim=0).to(self.device)
         y = torch.zeros(size=(observations.shape[0],)).to(self.device)
 
-        # Saving the dataset for future reference.
-        self.axiomatic_dataset = {
-            'obs': observations,
-            'act': actions,
-            'y': y
-        }
+        self.axiomatic_dataset = DataLoader(
+            dataset=TensorDataset(observations, actions, y),
+            batch_size=cfgs.algo_cfgs.batch_size,
+            shuffle=True
+        )
 
     def train_from_axiomatic_dataset(self,
                                      cfgs: Config,
                                      logger: Logger,
-                                     epochs: Optional[int],
-                                     batch_size: Optional[int],
+                                     epochs: Optional[int]
                                      ):
 
         """
@@ -178,26 +178,11 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         """
         if epochs is None:
             epochs = cfgs.model_cfgs.binary_critic.initialization.epochs
-        if batch_size is None:
-            batch_size = cfgs.algo_cfgs.batch_size
-
-        obs, act, y = (
-            self.axiomatic_dataset['obs'],
-            self.axiomatic_dataset['act'],
-            self.axiomatic_dataset['y']
-        )
-        # print(f'observations are {obs}\nobs shape: {obs.shape}\nact are {act}\nact shape: {act.shape}\n'
-        #       f'y are {y}\ny has shape {y.shape}')
-        dataloader = DataLoader(
-            dataset=TensorDataset(obs, act, y),
-            batch_size=batch_size,
-            shuffle=True
-        )
         losses = []
         # print('Training classifiers...')
         for _ in range(epochs):
             # Get minibatch
-            for o, a, y in dataloader:
+            for o, a, y in self.axiomatic_dataset:
                 self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
                 values = self.binary_critic.forward(o, a)  # one per binary_critic
@@ -243,8 +228,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         self.initialize_axiomatic_dataset(env, cfgs)
         losses = self.train_from_axiomatic_dataset(cfgs=cfgs,
                                                    logger=logger,
-                                                   epochs=None,
-                                                   batch_size=None)
+                                                   epochs=None
+                                                   )
 
         # Sync parameters with binary_critics
         del self.target_binary_critic
@@ -352,9 +337,15 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
         a = a.view(batch_size, self.binary_critic.max_resamples, -1)  # (B, R, A)
         a = a[torch.arange(batch_size), chosen_idx]  # (B, A)
+
+        # Update 05/12/24:
+        # Instead of returning the safety value of the 'taken' action, return the (average) number of
+        # 'classified unsafe' actions. This will be fed back to update the _actor_
         safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
 
-        return a, safety_val, num_resamples
+        # Similar to probability of sampling an unsafe action
+        p_unsafe = (self.binary_critic.max_resamples - count_safe).mean(dtype=torch.float32).unsqueeze(0)
+        return a, p_unsafe, num_resamples
 
 
         # Need to:
