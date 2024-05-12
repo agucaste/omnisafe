@@ -113,6 +113,8 @@ defaults:
 # The cost critic
     cost_critic:
       num_critics: 1
+      # How the binary critic should filter actions: either 'safe' or 'most_uncertain'
+      how_to_act: uncertain
       # maximum 'resamples' of actions proposed by the actor, if the critic deems them unsafe
       max_resamples: 50
       hidden_sizes: [256, 256]
