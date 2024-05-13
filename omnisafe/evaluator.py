@@ -304,7 +304,7 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
                 self._actor.actor.load_state_dict(model_params['pi'])
                 self._actor.cost_critic.load_state_dict(model_params['cost_critic'])
 
-            if 'TRPOBinaryCritic' in self._cfgs['algo'] or 'TRPOPenaltyBinaryCritic':
+            if self._cfgs['algo'].endswith('BinaryCritic'):
                 self._actor: ActorCriticBinaryCritic = ActorCriticBinaryCritic(
                     obs_space=self._env.observation_space,
                     act_space=self._env.action_space,
@@ -313,7 +313,7 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
                     env=self._env
                 )
                 self._actor.actor.load_state_dict(model_params['pi'])
-                self._actor.cost_critic.load_state_dict(model_params['binary_critic'])
+                self._actor.binary_critic.load_state_dict(model_params['binary_critic'])
 
     # pylint: disable-next=too-many-locals
     def load_saved(

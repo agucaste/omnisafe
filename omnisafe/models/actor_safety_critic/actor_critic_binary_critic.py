@@ -108,11 +108,11 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
         # Save the environment (this may be useful if one is stepping with a uniformly safe policy, see step() )
         # self._env = env
-        # self.action_space = deepcopy(env.action_space)
         # The axiomatic dataset with 'safe' transitions, see initialize_binary_critic()
         self.axiomatic_dataset = {}
+        self.device = torch.device('cpu')  # to be overwritten (if needed) by init_axiomatic_dataset
 
-    def initialize_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
+    def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
         obs_samples = cfgs.model_cfgs.binary_critic.initialization.o_samples
         a_samples = cfgs.model_cfgs.binary_critic.initialization.a_samples
@@ -225,7 +225,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                 - batch_size: size of minibatch.
         """
 
-        self.initialize_axiomatic_dataset(env, cfgs)
+        self.init_axiomatic_dataset(env, cfgs)
         losses = self.train_from_axiomatic_dataset(cfgs=cfgs,
                                                    logger=logger,
                                                    epochs=None
@@ -392,11 +392,9 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         """This function is added for the purpose of the 'evaluator', after training.
         Taken from 'actor_q_critic_binary_critic.py'
         """
-        # print(f' obs shape is {obs.shape}')
         obs = obs.unsqueeze(0)
-        a, *_ = self.step(obs, deterministic=deterministic, bypass_actor=False)
-        # print(f' action shape is {a.shape}')
-        a = a.view(self.action_space.shape)
+        a, *_ = self.step(obs, deterministic=deterministic)
+        a = a.view(self.actor.act_space.shape)
         return a
 
     def polyak_update(self, tau: float) -> None:
