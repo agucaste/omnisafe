@@ -149,6 +149,7 @@ class TRPOBinaryCritic(TRPO):
         self._logger.register_key('Metrics/NumInterventions', window_length=50)  # if an action is resampled that counts as an intervention
         self._logger.register_key('Loss/binary_critic_axiomatic')
         self._logger.register_key('Loss/Loss_binary_critic')
+        self._logger.register_key('Value/binary_critic')
 
         # TODO: Move this to another place! here it's ugly.
         self._actor_critic.initialize_binary_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
@@ -288,7 +289,6 @@ class TRPOBinaryCritic(TRPO):
                                           )
         value_c_filter = value_c[filtering_mask]
         target_value_c_filter = target_value_c[filtering_mask]
-
         loss = nn.functional.binary_cross_entropy(value_c_filter, target_value_c_filter)
 
         if self._cfgs.algo_cfgs.use_critic_norm:
@@ -305,7 +305,7 @@ class TRPOBinaryCritic(TRPO):
         distributed.avg_grads(self._actor_critic.binary_critic)
         self._actor_critic.binary_critic_optimizer.step()
 
-        self._logger.store({'Loss/Loss_cost_critic': loss.mean().item(),
-                            'Value/cost_critic': value_c_filter.mean().item(),
+        self._logger.store({'Loss/Loss_binary_critic': loss.mean().item(),
+                            'Value/binary_critic': value_c_filter.mean().item(),
                             },
                            )
