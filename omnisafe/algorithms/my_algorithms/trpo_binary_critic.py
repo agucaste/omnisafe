@@ -286,8 +286,10 @@ class TRPOBinaryCritic(TRPO):
         filtering_mask = torch.logical_or(target_value_c >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
                                           torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
                                           )
+        value_c_filter = value_c[filtering_mask]
+        target_value_c_filter = target_value_c[filtering_mask]
 
-        loss = nn.functional.binary_cross_entropy(value_c[filtering_mask], target_value_c[filtering_mask])
+        loss = nn.functional.binary_cross_entropy(value_c_filter, target_value_c_filter)
 
         if self._cfgs.algo_cfgs.use_critic_norm:
             for param in self._actor_critic.binary_critic.parameters():
@@ -303,4 +305,7 @@ class TRPOBinaryCritic(TRPO):
         distributed.avg_grads(self._actor_critic.binary_critic)
         self._actor_critic.binary_critic_optimizer.step()
 
-        self._logger.store({'Loss/Loss_binary_critic': loss.mean().item()})
+        self._logger.store({'Loss/Loss_cost_critic': loss.mean().item(),
+                            'Value/cost_critic': value_c_filter.mean().item(),
+                            },
+                           )
