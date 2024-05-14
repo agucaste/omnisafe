@@ -26,7 +26,7 @@ if __name__ == '__main__':
     else:
         custom_cfgs = None
 
-    agent = omnisafe.Agent('TRPOPenaltyBinaryCritic', env_id, custom_cfgs=custom_cfgs)
+    agent = omnisafe.Agent('TRPOLagBinaryCritic', env_id, custom_cfgs=custom_cfgs)
     agent.learn()
 
     agent.plot(smooth=1)
