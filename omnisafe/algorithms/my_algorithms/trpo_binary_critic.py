@@ -272,7 +272,7 @@ class TRPOBinaryCritic(TRPO):
         #     target_c = self._actor_critic.target_binary_critic.assess_safety(o_prime, a)
         #     target_value_c.append(target_c)
         with torch.no_grad():
-            next_a, *_ = self._actor_critic.pick_safe_action(next_obs)
+            next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest')
             target_value_c = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
 
         # print('Training binary critic....')

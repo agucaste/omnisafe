@@ -94,6 +94,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             num_critics=model_cfgs.binary_critic.num_critics,
             use_obs_encoder=False,
         ).build_critic('b')
+        # Update the maximum number of resamples.
+        self.binary_critic.max_resamples = model_cfgs.max_resamples
 
         self.target_binary_critic: Critic = deepcopy(self.binary_critic)
         for param in self.target_binary_critic.parameters():
@@ -111,6 +113,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         # The axiomatic dataset with 'safe' transitions, see initialize_binary_critic()
         self.axiomatic_dataset = {}
         self.device = torch.device('cpu')  # to be overwritten (if needed) by init_axiomatic_dataset
+
+        self.action_criterion = model_cfgs.action_criterion
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
@@ -299,7 +303,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         """
         return self.step(obs, deterministic=deterministic)
 
-    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False,
+    def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, criterion: Optional[str] = None,
                          ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
         A candidate action is proposed.
@@ -313,12 +317,17 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         Args:
             obs (torch.tensor): The observation from environments.
             deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
+            criterion (str): (Update 05/15/24)
+                            'first_safe' or 'safest'. 'first' selects the first action that was deemed safe, 'safest' grabs
+                             the safest one among all the sampled ones.
 
         Returns:
             a: A candidate safe action, or the safest action among the samples.
             safety_index: the safety index (between 0 (safe) and 1 (unsafe)).
             num_resamples: the number of resamples done before a safe action was found.
         """
+        criterion = self.action_criterion if criterion is None else criterion
+
         batch_size = obs.shape[0]  # B
         # Repeat the observation to feed to the actor; original obs is (B, O)
         repeated_obs = self.repeat_obs(obs, self.binary_critic.max_resamples)  # (B*R, O)
@@ -332,8 +341,16 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         safest = safety_val.argmin(dim=-1)  # (B, )
         first_safe = (safety_val < .5).to(torch.uint8).argmax(dim=-1)
 
-        chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
-        num_resamples = first_safe * (count_safe > 0) + self.binary_critic.max_resamples * (count_safe == 0)
+        if criterion == 'first_safe':
+            chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
+            num_resamples = first_safe * (count_safe > 0) + self.binary_critic.max_resamples * (count_safe == 0)
+        elif criterion == 'safest':
+            # print(f' taking safest action')
+            # print(f' returning safest index!')
+            chosen_idx = safest
+            num_resamples = self.binary_critic.max_resamples * torch.ones_like(count_safe)
+        else:
+            raise (ValueError, f"criterion should be either 'first' or 'safest', not {criterion}")
 
         a = a.view(batch_size, self.binary_critic.max_resamples, -1)  # (B, R, A)
         a = a[torch.arange(batch_size), chosen_idx]  # (B, A)

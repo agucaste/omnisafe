@@ -99,6 +99,11 @@ defaults:
     exploration_noise_anneal: False
     # std upper bound, and lower bound
     std_range: [0.5, 0.1]
+    # Update 05/15/24:
+    # Maximum resampling for binary critic network
+    max_resamples: 50
+    # Action criterion: either take 'safest' action or 'first_safe'
+    action_criterion: first_safe
     # actor network configurations
     actor:
       # hidden layer sizes
@@ -121,10 +126,9 @@ defaults:
       hidden_sizes: [256, 256]
       activation: tanh
       lr: 0.001
-    # The cost critic
+    # The binary critic
     binary_critic:
       num_critics: 1
-      max_resamples: 50
       hidden_sizes: [ 256, 256 ]
       activation: tanh
       lr: 0.001
