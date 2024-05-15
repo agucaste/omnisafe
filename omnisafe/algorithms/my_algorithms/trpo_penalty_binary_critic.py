@@ -75,20 +75,22 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
                 2.  we pass to _update_actor 'safety_idx', which is then used to compute_adv_surrogate.
         """
         data = self._buf.get()
-        obs, act, logp, target_value_r, target_value_c, adv_r, adv_c, next_obs, cost, safety_idx = (
+        obs, act, logp, target_value_r, target_value_c, target_value_s, adv_r, adv_c, adv_s, next_obs, cost, safety_idx = (
             data['obs'],
             data['act'],
             data['logp'],
             data['target_value_r'],
             data['target_value_c'],
+            data['target_value_s'],  # safety target.
             data['adv_r'],
             data['adv_c'],
+            data['adv_s'],  # safety advantage
             data['next_obs'],
             data['cost'],
             data['safety_idx']
         )
         # print(f'reward advantages are {adv_r}')
-        self._update_actor(obs, act, logp, adv_r, adv_c=adv_c, safety_idx=safety_idx)
+        self._update_actor(obs, act, logp, adv_r, adv_c=adv_c, adv_s=adv_s, safety_idx=safety_idx)
 
         dataloader = DataLoader(
             dataset=TensorDataset(obs, act, target_value_r, target_value_c, cost, next_obs),
@@ -129,6 +131,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         logp: torch.Tensor,
         adv_r: torch.Tensor,
         adv_c: torch.Tensor,
+        adv_s: torch.Tensor,
         safety_idx: torch.Tensor,
     ) -> None:
         """
@@ -148,7 +151,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         self._fvp_obs = obs[:: self._cfgs.algo_cfgs.fvp_sample_freq]
         theta_old = get_flat_params_from(self._actor_critic.actor)
         self._actor_critic.actor.zero_grad()
-        adv = self._compute_adv_surrogate(adv_r, adv_c, safety_idx)  # This method is different! safety_idx used.
+        adv = self._compute_adv_surrogate(adv_r, adv_c, adv_s, safety_idx)  # This method is different! safety_idx used.
         loss = self._loss_pi(obs, act, logp, adv)
         loss_before = distributed.dist_avg(loss)
         p_dist = self._actor_critic.actor(obs)
@@ -197,6 +200,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         self,
         adv_r: torch.Tensor,
         adv_c: torch.Tensor,
+        adv_s: torch.Tensor,
         safety_idx: torch.Tensor
     ) -> torch.Tensor:
         """Computes advantage surrogate for the actor using a penalization scheme.
@@ -216,12 +220,14 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
             adv_c (torch.Tensor): The ``cost_advantage`` sampled from buffer.
                                      Corresponds to the advantage given by the binary critics.
                                      # TODO: Should we implement a 'normal' cost critic???
+            adv_s: the 'safety advantage'. Currently corresponds to the average unsafe actions as deemed by critic.
             safety_idx (torch.Tensor): the predicted \hat{b}(s,a) (continuous, between [0, 1])
 
 
         Returns:
             The advantage function of reward to update policy network.
         """
+        raise (ValueError, 'this needs to be updated')
         coef = self._cfgs.algo_cfgs.adv_surrogate_penalty
 
         surrogate_types = ['naive', 'penalize_unsafe', 'penalize_safe', 'penalize_unsafe_samples']

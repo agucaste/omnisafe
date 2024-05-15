@@ -103,6 +103,8 @@ defaults:
     max_resamples: 50
     # Action criterion: either take 'safest' action or 'first_safe'
     action_criterion: first_safe
+    # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
+    operator: equality
     # actor network configurations
     actor:
       # hidden layer sizes

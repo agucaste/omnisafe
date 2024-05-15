@@ -30,7 +30,7 @@ import torch
 from rich.progress import track
 
 from omnisafe.adapter.online_adapter import OnlineAdapter
-from omnisafe.common.buffer import VectorOnPolicyBuffer
+from omnisafe.common.buffer import VectorOnOffPolicyBuffer
 from omnisafe.common.logger import Logger
 from omnisafe.models.actor_critic.constraint_actor_critic import ConstraintActorCritic
 from omnisafe.utils.config import Config
@@ -69,7 +69,7 @@ class OnOffPolicyAdapter(OnlineAdapter):
         self,
         steps_per_epoch: int,
         agent: ConstraintActorCritic,
-        buffer: VectorOnPolicyBuffer,
+        buffer: VectorOnOffPolicyBuffer,
         logger: Logger,
     ) -> None:
         """Rollout the environment and store the data in the buffer.
@@ -126,11 +126,11 @@ class OnOffPolicyAdapter(OnlineAdapter):
                             logger.log(
                                 f'Warning: trajectory cut off when rollout by epoch at {self._ep_len[idx]} steps.',
                             )
-                            _, last_value_r, last_value_c, *_ = agent.step(obs[idx].unsqueeze(0))
+                            _, last_value_r, last_value_c, _, last_value_safety, _ = agent.step(obs[idx].unsqueeze(0))
                         if time_out:
                             # obz = info['final_observation'][idx]
                             # print(f'obz is {obz}\n of shape {obz.shape}')
-                            _, last_value_r, last_value_c, *_ = agent.step(
+                            _, last_value_r, last_value_c, _, last_value_safety, _ = agent.step(
                                 info['final_observation'][idx].unsqueeze(0),
                             )
                         # last_value_r = last_value_r.unsqueeze(0)
@@ -144,7 +144,7 @@ class OnOffPolicyAdapter(OnlineAdapter):
                         self._ep_cost[idx] = 0.0
                         self._ep_len[idx] = 0.0
 
-                    buffer.finish_path(last_value_r, last_value_c, idx)
+                    buffer.finish_path(last_value_r, last_value_c, last_value_safety, idx)
 
     def _log_value(
         self,

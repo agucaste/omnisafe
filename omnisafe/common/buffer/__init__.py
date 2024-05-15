@@ -19,6 +19,8 @@ from omnisafe.common.buffer.offpolicy_buffer import OffPolicyBuffer
 from omnisafe.common.buffer.onpolicy_buffer import OnPolicyBuffer
 from omnisafe.common.buffer.vector_offpolicy_buffer import VectorOffPolicyBuffer
 from omnisafe.common.buffer.vector_onpolicy_buffer import VectorOnPolicyBuffer
+from omnisafe.common.buffer.vector_onoffpolicy_buffer import VectorOnOffPolicyBuffer
+
 
 
 __all__ = [
@@ -27,4 +29,5 @@ __all__ = [
     'OnPolicyBuffer',
     'VectorOffPolicyBuffer',
     'VectorOnPolicyBuffer',
+    'VectorOnOffPolicyBuffer'
 ]

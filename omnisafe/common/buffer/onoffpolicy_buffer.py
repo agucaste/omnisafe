@@ -118,6 +118,74 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
         self.data['safety_idx'] = torch.zeros((size,), dtype=torch.float32, device=device)
         self.data['num_resamples'] = torch.zeros((size,), dtype=torch.float32, device=device)
 
+        # 05/15/24
+        # Adding safety advantages
+        self.data['adv_s'] = torch.zeros((size,), dtype=torch.float32, device=device)
+        self.data['target_value_s'] = torch.zeros((size,), dtype=torch.float32, device=device)
+
+    def finish_path(
+        self,
+        last_value_r: torch.Tensor | None = None,
+        last_value_c: torch.Tensor | None = None,
+        last_value_safety: torch.Tensor | None = None
+    ) -> None:
+        """
+        Difference wrt on-policy buffer: this also builds GAE for the 'safety_idx'
+        """
+        if last_value_r is None:
+            last_value_r = torch.zeros(1, device=self._device)
+        if last_value_c is None:
+            last_value_c = torch.zeros(1, device=self._device)
+
+        path_slice = slice(self.path_start_idx, self.ptr)
+        last_value_r = last_value_r.to(self._device)
+        last_value_c = last_value_c.to(self._device)
+        rewards = torch.cat([self.data['reward'][path_slice], last_value_r])
+        values_r = torch.cat([self.data['value_r'][path_slice], last_value_r])
+        costs = torch.cat([self.data['cost'][path_slice], last_value_c])
+        values_c = torch.cat([self.data['value_c'][path_slice], last_value_c])
+
+        discountred_ret = discount_cumsum(rewards, self._gamma)[:-1]
+        self.data['discounted_ret'][path_slice] = discountred_ret
+        rewards -= self._penalty_coefficient * costs
+
+        adv_r, target_value_r = self._calculate_adv_and_value_targets(
+            values_r,
+            rewards,
+            lam=self._lam,
+        )
+        adv_c, target_value_c = self._calculate_adv_and_value_targets(
+            values_c,
+            costs,
+            lam=self._lam_c,
+        )
+
+        self.data['adv_r'][path_slice] = adv_r
+        self.data['target_value_r'][path_slice] = target_value_r
+        self.data['adv_c'][path_slice] = adv_c
+        self.data['target_value_c'][path_slice] = target_value_c
+
+        # 05/15/24
+        # Begin mod -->
+        # print(f' finishing path and adding safety advantage')
+        if last_value_safety is None:
+            last_value_safety = torch.zeros(1, device=self._device)
+        last_value_safety = last_value_safety.to(self._device)
+        values_safety = torch.cat([self.data['safety_idx'][path_slice], last_value_safety])
+
+        adv_safety, target_value_safety = self._calculate_adv_and_value_targets(
+            values_safety,
+            costs,
+            lam=self._lam_c,
+        )
+        self.data['adv_s'][path_slice] = adv_safety
+        self.data['target_value_s'][path_slice] = target_value_safety
+        # print(f' safety advantage: {adv_safety}\n target_value: {target_value_safety}')
+        # < -- End mod
+
+        self.path_start_idx = self.ptr
+
+
     def get(self) -> dict[str, torch.Tensor]:
         """Get the data in the buffer.
 
@@ -137,6 +205,8 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
         data.update(
             {'cost': self.data['cost'],
              'next_obs': self.data['next_obs'],
-             'safety_idx': self.data['safety_idx']}
+             'safety_idx': self.data['safety_idx'],
+             'adv_s': self.data['adv_s'],
+             'target_value_s': self.data['target_value_s']}
         )
         return data

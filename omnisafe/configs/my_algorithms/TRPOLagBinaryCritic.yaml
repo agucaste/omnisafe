@@ -57,10 +57,6 @@ defaults:
     # standardize cost advantage
     standardized_cost_adv: True
     # The type of advantage surrogate to use (in algo's method _compute_adv_surrogate)
-    # Should be one of ['naive', 'penalize_safe', 'penalize_unsafe', 'penalize_unsafe_samples']
-    adv_surrogate_type: 'penalize_unsafe_samples'
-    # How much to penalize the cost in the adv_surrogate computation
-    adv_surrogate_penalty: 100
     # penalty coefficient
     penalty_coef: 0.0
     # use cost
@@ -103,7 +99,9 @@ defaults:
     # Maximum resampling for binary critic network
     max_resamples: 50
     # Action criterion: either take 'safest' action or 'first_safe'
-    action_criterion: first_safe
+    action_criterion: safest
+    # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
+    operator: inequality
     # actor network configurations
     actor:
       # hidden layer sizes
@@ -140,9 +138,9 @@ defaults:
   # lagrangian configurations
   lagrange_cfgs:
     # Tolerance of constraint violation
-    cost_limit: 0.0
+    cost_limit: 25.0
     # Initial value of lagrangian multiplier
-    lagrangian_multiplier_init: 100.0  # 0.001
+    lagrangian_multiplier_init: 0.001
     # Learning rate of lagrangian multiplier
     lambda_lr: 0.035
     # Type of lagrangian optimizer

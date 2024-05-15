@@ -90,3 +90,38 @@ class VectorOnOffPolicyBuffer(VectorOnPolicyBuffer):
             )
             for _ in range(num_envs)
         ]
+
+    def finish_path(
+        self,
+        last_value_r: torch.Tensor | None = None,
+        last_value_c: torch.Tensor | None = None,
+        last_value_safety: torch.Tensor | None = None,
+        idx: int = 0,
+    ) -> None:
+        """Get the data in the buffer.
+        Added last_value_safety (05/15/24)
+        """
+        self.buffers[idx].finish_path(last_value_r, last_value_c, last_value_safety)
+
+    def get(self) -> dict[str, torch.Tensor]:
+        """Get the data in the buffer.
+        Adding standardization of safety_index.
+        Returns:
+            The data stored and calculated in the buffer.
+        """
+        data_pre = {k: [v] for k, v in self.buffers[0].get().items()}
+        for buffer in self.buffers[1:]:
+            for k, v in buffer.get().items():
+                data_pre[k].append(v)
+        data = {k: torch.cat(v, dim=0) for k, v in data_pre.items()}
+
+        adv_mean, adv_std, *_ = distributed.dist_statistics_scalar(data['adv_r'])
+        cadv_mean, *_ = distributed.dist_statistics_scalar(data['adv_c'])
+        sadv_mean, *_ = distributed.dist_statistics_scalar(data['adv_s'])
+        if self._standardized_adv_r:
+            data['adv_r'] = (data['adv_r'] - adv_mean) / (adv_std + 1e-8)
+        if self._standardized_adv_c:
+            data['adv_c'] = data['adv_c'] - cadv_mean
+            data['adv_s'] = data['adv_s'] - sadv_mean
+
+        return data

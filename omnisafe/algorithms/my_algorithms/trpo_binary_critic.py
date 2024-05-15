@@ -283,12 +283,19 @@ class TRPOBinaryCritic(TRPO):
         target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
         # filtering_mask = target_value_c >= .5
 
-        # Filter dataset (04/30/24):
-        filtering_mask = torch.logical_or(target_value_c >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
-                                          torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
-                                          )
-        value_c_filter = value_c[filtering_mask]
-        target_value_c_filter = target_value_c[filtering_mask]
+        # Update 05/15/24 : filter towards inequality depending on model cfgs.
+        if self._cfgs.model_cfgs.operator == 'equality':
+            # Filter dataset (04/30/24):
+            filtering_mask = torch.logical_or(target_value_c >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
+                                              torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
+                                              )
+            value_c_filter = value_c[filtering_mask]
+            target_value_c_filter = target_value_c[filtering_mask]
+        elif self._cfgs.model_cfgs.operator == 'inequality':
+            value_c_filter = value_c
+            target_value_c_filter = target_value_c
+        else:
+            raise (ValueError, f'operator should be "equality" or "inequality", not {self._cfgs.model_cfgs.operator}')
         loss = nn.functional.binary_cross_entropy(value_c_filter, target_value_c_filter)
 
         if self._cfgs.algo_cfgs.use_critic_norm:

@@ -63,12 +63,15 @@ class TRPOLagBinaryCritic(TRPOPenaltyBinaryCritic):
         self,
         adv_r: torch.Tensor,
         adv_c: torch.Tensor,
+        adv_s: torch.Tensor,
         safety_idx: torch.Tensor
     ) -> torch.Tensor:
-
+        """
+        Penalizing w.r.t. safety advantage.
+        """
         penalty = self._lagrange.lagrangian_multiplier.item()
-
-        return (adv_r - penalty * safety_idx) / (1 + penalty)
+        return (adv_r - penalty * adv_s) / (1 + penalty)
+        # return (adv_r - penalty * safety_idx) / (1 + penalty)
 
 
     def _update(self) -> None:
