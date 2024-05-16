@@ -118,8 +118,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
-        obs_samples = cfgs.model_cfgs.binary_critic.initialization.o_samples
-        a_samples = cfgs.model_cfgs.binary_critic.initialization.a_samples
+        obs_samples = cfgs.model_cfgs.binary_critic.axiomatic_data.o
+        a_samples = cfgs.model_cfgs.binary_critic.axiomatic_data.a
         self.device = cfgs.train_cfgs.device
         self.num_envs = cfgs.train_cfgs.vector_env_nums
 
@@ -181,7 +181,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
         """
         if epochs is None:
-            epochs = cfgs.model_cfgs.binary_critic.initialization.epochs
+            epochs = cfgs.model_cfgs.binary_critic.axiomatic_data.epochs
         losses = []
         # print('Training classifiers...')
         for _ in range(epochs):
@@ -235,12 +235,6 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                                                    epochs=None
                                                    )
 
-        # Sync parameters with binary_critics
-        del self.target_binary_critic
-        self.target_binary_critic = deepcopy(self.binary_critic)
-        for param in self.target_binary_critic.parameters():
-            param.requires_grad = False
-
         plot_fp = logger._log_dir + '/binary_critic_init_loss.png'
         plt.figure()
         plt.plot(np.array(losses))
@@ -249,6 +243,77 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         plt.title('Binary critic: BCE initialization loss')
         plt.savefig(plot_fp, dpi=200)
         print(f'Saving binary critic initialization loss at {plot_fp}')
+        plt.close()
+
+        self.optimistic_initialization(cfgs, logger)
+
+        # Sync parameters with binary_critics
+        del self.target_binary_critic
+        self.target_binary_critic = deepcopy(self.binary_critic)
+        for param in self.target_binary_critic.parameters():
+            param.requires_grad = False
+
+    def optimistic_initialization(self, cfgs: Config, logger: Logger):
+        """
+        Do optimistic initialization -> train with random 'safe' samples.
+        """
+        o_low, o_high, o_dim = self.actor._obs_space.low, self.actor._obs_space.high, self.actor._obs_dim
+        o_low = np.clip(o_low, -10, None)
+        o_high = np.clip(o_high, None, 10)
+
+        a_low, a_high, a_dim = self.actor.act_space.low, self.actor.act_space.high, self.actor._act_dim
+        samples = cfgs.model_cfgs.binary_critic.init_samples
+
+        obs = np.random.uniform(low=o_low, high=o_high, size=(samples, o_dim)).astype(np.float32)
+        act = np.random.uniform(low=a_low, high=a_high, size=(samples, a_dim)).astype(np.float32)
+
+        obs = torch.from_numpy(obs).to(self.device)
+        act = torch.from_numpy(act).to(self.device)
+        y = torch.zeros(size=(obs.shape[0],)).to(self.device)
+
+        epochs = cfgs.model_cfgs.binary_critic.axiomatic_data.epochs
+        dataloader = DataLoader(
+            dataset=TensorDataset(obs, act, y),
+            batch_size=cfgs.algo_cfgs.batch_size,
+            shuffle=True,
+        )
+        print(f'Optimistic initialization...')
+        for _ in range(epochs):
+            # Get minibatch
+            for o, a, y in dataloader:
+                self.binary_critic_optimizer.zero_grad()
+                # Compute bce loss
+                values = self.binary_critic.forward(o, a)  # one per binary_critic
+                loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
+                # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
+                if cfgs.algo_cfgs.use_critic_norm:
+                    for param in self.binary_critic.parameters():
+                        loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef
+
+                loss.backward()
+
+                if cfgs.algo_cfgs.use_max_grad_norm:
+                    clip_grad_norm_(
+                        self.binary_critic.parameters(),
+                        cfgs.algo_cfgs.max_grad_norm,
+                    )
+                distributed.avg_grads(self.binary_critic)
+                self.binary_critic_optimizer.step()
+
+        with torch.no_grad():
+            safety_vals = self.binary_critic.assess_safety(obs, act)
+
+        count_safe = torch.count_nonzero(safety_vals < .5)
+
+        print(f' {count_safe} safe entries out of a total of {samples}')
+        plt.figure()
+        plt.hist(safety_vals, bins=50)
+        plt.xlabel('safety value')
+        plt.ylabel('ocurrences')
+        plt.title(f'Fraction of {count_safe/samples:.2f} safe samples along SxA when training with '
+                  f'|Dsafe|={cfgs.model_cfgs.binary_critic.axiomatic_data.o}x{cfgs.model_cfgs.binary_critic.axiomatic_data.a}')
+        plot_fp = logger._log_dir + '/histogram_classification.pdf'
+        plt.savefig(plot_fp)
         plt.close()
         return
 
