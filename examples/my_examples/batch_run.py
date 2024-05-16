@@ -23,7 +23,7 @@ from omnisafe.utils.tools import custom_cfgs_to_dict, update_dict
 if __name__ == '__main__':
     env_id = 'SafetyPointCircle1-v0'
 
-    if torch.cuda.is_available():
+    if False:  # torch.cuda.is_available():
         # Get the free and total memory on each device
         mem_free, mem_total = zip(*[torch.cuda.mem_get_info(i) for i in range(torch.cuda.device_count())])
         # Select device with the most free space
