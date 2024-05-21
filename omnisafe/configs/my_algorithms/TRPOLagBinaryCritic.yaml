@@ -101,7 +101,8 @@ defaults:
     max_resamples: 100
     # Action criterion: either take 'safest' action or 'first_safe'
     action_criterion: safest
-    safety_index_criterion: max
+    # How to compute the actor_critic safety index (to be used in advantage estimation)
+    safety_index_criterion: avg
     # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
     operator: inequality
     # actor network configurations
