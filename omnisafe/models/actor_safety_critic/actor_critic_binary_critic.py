@@ -472,7 +472,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             return safety_idx.unsqueeze(0)
 
         def compute_safety_idx_avg(values: torch.Tensor) -> torch.Tensor:
-            safety_idx, _ = torch.mean(values, dim=-1)
+            safety_idx  = torch.mean(values, dim=-1)
             return safety_idx.unsqueeze(0)
 
         print(f"Setting compute_safety_idx criterion as {criterion}")
