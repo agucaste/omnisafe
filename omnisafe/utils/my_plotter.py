@@ -386,7 +386,7 @@ class MyPlotter:
                 estimator=estimator,
                 label=exp_name
             )
-        plt.show()
+        plt.savefig('./results.pdf')
         # if cost_limit:
         #     axes[1].axhline(y=cost_limit, ls='--', c='black', linewidth=2)
         # if save_name is None:

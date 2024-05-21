@@ -24,9 +24,10 @@ from __future__ import annotations
 import torch
 
 from omnisafe.common.buffer.onpolicy_buffer import OnPolicyBuffer
-from omnisafe.typing import DEVICE_CPU, AdvatageEstimator, OmnisafeSpace
+from omnisafe.typing import DEVICE_CPU, AdvantageEstimator, OmnisafeSpace
 from omnisafe.utils import distributed
 from omnisafe.utils.math import discount_cumsum
+from typing import Optional
 
 
 class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-attributes
@@ -94,7 +95,8 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
         gamma: float,
         lam: float,
         lam_c: float,
-        advantage_estimator: AdvatageEstimator,
+        advantage_estimator: AdvantageEstimator,
+        advantage_estimator_safety: AdvantageEstimator,
         penalty_coefficient: float = 0,
         standardized_adv_r: bool = False,
         standardized_adv_c: bool = False,
@@ -114,6 +116,9 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
             standardized_adv_c,
             device,
         )
+        # Get the safety advantage estimator.
+        self._advantage_estimator_safety = advantage_estimator_safety
+
         self.data['next_obs'] = torch.zeros_like(self.data['obs'])
         self.data['safety_idx'] = torch.zeros((size,), dtype=torch.float32, device=device)
         self.data['num_resamples'] = torch.zeros((size,), dtype=torch.float32, device=device)
@@ -172,12 +177,21 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
             last_value_safety = torch.zeros(1, device=self._device)
         last_value_safety = last_value_safety.to(self._device)
         values_safety = torch.cat([self.data['safety_idx'][path_slice], last_value_safety])
+        if self._advantage_estimator_safety == 'gae_safety':
+            adv_safety, target_value_safety = self._calculate_safety_adv_and_value_target(
+                values_safety,
+                costs,
+                lam=self._lam_c,
+            )
+        else:
+            # Get the advantage with the same method as the reward and cost.
+            adv_safety, target_value_safety = self._calculate_adv_and_value_targets(
+                values_safety,
+                costs,
+                lam=self._lam_c,
+            )
 
-        adv_safety, target_value_safety = self._calculate_adv_and_value_targets(
-            values_safety,
-            costs,
-            lam=self._lam_c,
-        )
+
         self.data['adv_s'][path_slice] = adv_safety
         self.data['target_value_s'][path_slice] = target_value_safety
         # print(f' safety advantage: {adv_safety}\n target_value: {target_value_safety}')
@@ -210,3 +224,29 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
              'target_value_s': self.data['target_value_s']}
         )
         return data
+
+    def _calculate_safety_adv_and_value_target(self,
+                                               values: torch.Tensor,
+                                               rewards: torch.Tensor,
+                                               lam: float,
+                                               ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the safety advantage by using:
+        A_t^k = -v(s_t) + max{c_t, c_{t+1}, c_{t+2}, ... c_{t+k-1}, v(s_{t+k})
+        Args:
+            values ():
+            rewards ():
+            lam ():
+
+        Returns:
+
+        """
+        assert self._advantage_estimator_safety == 'gae_safety'
+        print(f'computing gae_safetty advantage')
+
+        adv, _ = torch.cummax(rewards[:-1], dim=0)
+        adv = torch.maximum(adv, values[1:]) - values[:-1]
+        adv = discount_cumsum(adv, lam)
+
+        target_value = adv + values[:-1]
+        return adv, target_value

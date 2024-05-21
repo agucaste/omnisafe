@@ -20,7 +20,7 @@ import json
 import os
 from typing import Any
 
-from omnisafe.typing import Activation, ActorType, AdvatageEstimator, InitFunction
+from omnisafe.typing import Activation, ActorType, AdvantageEstimator, InitFunction
 from omnisafe.utils.tools import load_yaml
 
 
@@ -116,7 +116,7 @@ class Config(dict):
     gamma: float
     lam: float
     lam_c: float
-    adv_eastimator: AdvatageEstimator
+    adv_eastimator: AdvantageEstimator
     standardized_rew_adv: bool
     standardized_cost_adv: bool
     env_cfgs: Config

@@ -52,6 +52,7 @@ defaults:
     lam_c: 0.95
     # advantage estimation method, options: gae, retrace
     adv_estimation_method: gae
+    adv_estimation_method_safety: gae_safety
     # standardize reward advantage
     standardized_rew_adv: True
     # standardize cost advantage

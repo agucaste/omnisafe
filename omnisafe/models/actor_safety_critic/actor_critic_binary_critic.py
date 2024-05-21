@@ -278,7 +278,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             shuffle=True,
         )
         print(f'Optimistic initialization...')
-        for _ in range(epochs):
+        for _ in trange(epochs):
             # Get minibatch
             for o, a, y in dataloader:
                 self.binary_critic_optimizer.zero_grad()

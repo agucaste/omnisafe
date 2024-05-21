@@ -19,7 +19,7 @@ from __future__ import annotations
 import torch
 
 from omnisafe.common.buffer.base import BaseBuffer
-from omnisafe.typing import DEVICE_CPU, AdvatageEstimator, OmnisafeSpace
+from omnisafe.typing import DEVICE_CPU, AdvantageEstimator, OmnisafeSpace
 from omnisafe.utils import distributed
 from omnisafe.utils.math import discount_cumsum
 
@@ -89,7 +89,7 @@ class OnPolicyBuffer(BaseBuffer):  # pylint: disable=too-many-instance-attribute
         gamma: float,
         lam: float,
         lam_c: float,
-        advantage_estimator: AdvatageEstimator,
+        advantage_estimator: AdvantageEstimator,
         penalty_coefficient: float = 0,
         standardized_adv_r: bool = False,
         standardized_adv_c: bool = False,
@@ -113,7 +113,7 @@ class OnPolicyBuffer(BaseBuffer):  # pylint: disable=too-many-instance-attribute
         self._lam: float = lam
         self._lam_c: float = lam_c
         self._penalty_coefficient: float = penalty_coefficient
-        self._advantage_estimator: AdvatageEstimator = advantage_estimator
+        self._advantage_estimator: AdvantageEstimator = advantage_estimator
         self.ptr: int = 0
         self.path_start_idx: int = 0
         self.max_size: int = size
