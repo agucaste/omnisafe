@@ -385,7 +385,7 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
         episode_lengths: list[float] = []
 
         # Adding the option to take 'random' actions (and filter them out by the safety critic)
-        deterministic = False if 'TRPOBinaryCritic' in self._cfgs['algo'] else True
+        deterministic = False if 'BinaryCritic' in self._cfgs['algo'] else True
         for episode in range(num_episodes):
             obs, _ = self._env.reset()
             self._safety_obs = torch.ones(1)
