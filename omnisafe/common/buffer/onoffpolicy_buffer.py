@@ -242,7 +242,6 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
 
         """
         assert self._advantage_estimator_safety == 'gae_safety'
-        print(f'computing gae_safetty advantage')
 
         adv, _ = torch.cummax(rewards[:-1], dim=0)
         adv = torch.maximum(adv, values[1:]) - values[:-1]

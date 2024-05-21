@@ -115,6 +115,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         self.device = torch.device('cpu')  # to be overwritten (if needed) by init_axiomatic_dataset
 
         self.action_criterion = model_cfgs.action_criterion
+        self.setup_compute_safety_idx(criterion=model_cfgs.safety_index_criterion)
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
@@ -420,55 +421,17 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         a = a.view(batch_size, self.binary_critic.max_resamples, -1)  # (B, R, A)
         a = a[torch.arange(batch_size), chosen_idx]  # (B, A)
 
+        "05/21/24: computing safety index this way."
+        safety_idx = self.compute_safety_idx(safety_val)
         # Update 05/12/24:
         # Instead of returning the safety value of the 'taken' action, return the (average) number of
         # 'classified unsafe' actions. This will be fed back to update the _actor_
         safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
 
         # Similar to probability of sampling an unsafe action
+
         p_unsafe = (self.binary_critic.max_resamples - count_safe).mean(dtype=torch.float32).unsqueeze(0)
         return a, p_unsafe, num_resamples
-
-
-        # Need to:
-        # 1. for each b in B
-        #       - Look for 'first' element in b [0...R] that 'is safe'.
-        #       - Return that one.
-        # 2.    for each r in R
-        #
-
-
-
-
-        actions = []
-        safety_values = []
-        # print('resampling ')
-        for num_resample in torch.arange(self.binary_critic.max_resamples):
-            with torch.no_grad():
-                # pick an unfiltered action
-                if bypass_actor:
-                    # Sample a random action from the environment
-                    a = torch.as_tensor(self._env._env.sample_action(), dtype=torch.float32).unsqueeze(0)
-                else:
-                    # Use the actor to pick an action.
-                    a = self.actor.predict(obs, deterministic=deterministic)
-                safety_index = self.binary_critic.assess_safety(obs, a)
-            # print(f'safety index is {safety_index}')
-            if safety_index < .5:
-                # found a safe action
-                self.safety_label = 0
-                self.safety_index = safety_index
-                return a, safety_index, num_resample.unsqueeze(-1)
-            else:
-                # keep looking
-                actions.append(a)
-                safety_values.append(safety_index)
-        # No safe actions were found, pick the "safest" among all.
-        actions = torch.stack(actions)
-        safety_values = torch.stack(safety_values)
-        safety_index = safety_values.min().unsqueeze(-1)
-        a = actions[torch.argmin(safety_values)]
-        return a, safety_index, num_resample.unsqueeze(-1)
 
     def predict(self, obs: torch.Tensor, deterministic: bool):
         """This function is added for the purpose of the 'evaluator', after training.
@@ -491,6 +454,38 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             self.binary_critic.parameters(),
         ):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+    def setup_compute_safety_idx(self, criterion):
+        """
+        Sets the attribute of 'compute_safety_idx' method, based on the criterion. This is called once during __init__.
+        Args:
+            criterion (str): 'max', 'min' or 'average'. This will accordingly fix the behavior of 'compute_safety_idx'.
+            Compute_safety_idx is called during step() method.
+        Returns:
+        """
+        def compute_safety_idx_min(values: torch.Tensor) -> torch.Tensor:
+            safety_idx, _ = torch.min(values, dim=-1)
+            return safety_idx.unsqueeze(0)
+
+        def compute_safety_idx_max(values: torch.Tensor) -> torch.Tensor:
+            safety_idx, _ = torch.max(values, dim=-1)
+            return safety_idx.unsqueeze(0)
+
+        def compute_safety_idx_avg(values: torch.Tensor) -> torch.Tensor:
+            safety_idx, _ = torch.mean(values, dim=-1)
+            return safety_idx.unsqueeze(0)
+
+        print(f"Setting compute_safety_idx criterion as {criterion}")
+        if criterion == 'min':
+            setattr(self, 'compute_safety_idx', compute_safety_idx_min)
+        elif criterion == 'max':
+            setattr(self, 'compute_safety_idx', compute_safety_idx_max)
+        elif criterion == 'avg':
+            setattr(self, 'compute_safety_idx', compute_safety_idx_avg)
+        else:
+            raise (ValueError, f'Criterion for computing_safety_idx should be "min", "max" or "avg", not {criterion}')
+
+
 
     @staticmethod
     def repeat_obs(obs, num_repeat):
