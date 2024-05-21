@@ -112,7 +112,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
 
         # Check whether to act in a 'safe' or 'most_uncertain' manner.
         self.how_to_act = model_cfgs.cost_critic.how_to_act
-        self.setup_action_picking()
+        self.setup_step_method()
 
     def initialize_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
@@ -305,7 +305,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         a = a.view(self.actor._act_space.shape)
         return a
 
-    def setup_action_picking(self):
+    def setup_step_method(self):
         def pick_uncertain_action(obs: torch.Tensor, deterministic: bool = False, ) -> tuple[torch.Tensor, ...]:
             """
             Picks the most uncertain action possible (the one with value closest to 0.5)
