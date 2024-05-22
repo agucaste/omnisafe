@@ -27,6 +27,6 @@ if __name__ == '__main__':
     print(f' experiments = {experiments}')
 
     plotter = MyPlotter()
-    plotter.make_plots(experiments=experiments, smooth=5,
-                       title=r'TRPO-Lag-Binary-Critic with different methods to estimate $v^\pi(s)$')
+    plotter.make_plots(experiments=experiments, smooth=5,)
+                     
 

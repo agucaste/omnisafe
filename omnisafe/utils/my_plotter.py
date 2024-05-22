@@ -315,7 +315,6 @@ class MyPlotter:
         save_name: str | None = None,
         save_format: str = 'png',
         show_image: bool = False,
-        **kwargs
     ) -> None:
         """Make plots from the data in the specified log directories.
 
@@ -386,7 +385,7 @@ class MyPlotter:
                 smooth=smooth,
                 estimator=estimator,
                 label=exp_name,
-                **kwargs
+             #   **kwargs
             )
         plt.savefig('./results.pdf')
         # if cost_limit:
