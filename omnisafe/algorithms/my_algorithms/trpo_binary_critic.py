@@ -79,6 +79,7 @@ class TRPOBinaryCritic(TRPO):
             advantage_estimator_safety=self._cfgs.algo_cfgs.adv_estimation_method_safety,
             standardized_adv_r=self._cfgs.algo_cfgs.standardized_rew_adv,
             standardized_adv_c=self._cfgs.algo_cfgs.standardized_cost_adv,
+            standardized_adv_s=self._cfgs.algo_cfgs.standardized_safety_adv,
             penalty_coefficient=self._cfgs.algo_cfgs.penalty_coef,
             num_envs=self._cfgs.train_cfgs.vector_env_nums,
             device=self._device,

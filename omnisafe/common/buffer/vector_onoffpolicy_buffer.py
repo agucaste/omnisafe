@@ -67,6 +67,7 @@ class VectorOnOffPolicyBuffer(VectorOnPolicyBuffer):
         penalty_coefficient: float,
         standardized_adv_r: bool,
         standardized_adv_c: bool,
+        standardized_adv_s: bool,
         num_envs: int = 1,
         device: torch.device = DEVICE_CPU,
     ) -> None:
@@ -74,6 +75,7 @@ class VectorOnOffPolicyBuffer(VectorOnPolicyBuffer):
         self._num_buffers: int = num_envs
         self._standardized_adv_r: bool = standardized_adv_r
         self._standardized_adv_c: bool = standardized_adv_c
+        self._standardized_adv_s: bool = standardized_adv_s
 
         if num_envs < 1:
             raise ValueError('num_envs must be greater than 0.')
@@ -119,11 +121,12 @@ class VectorOnOffPolicyBuffer(VectorOnPolicyBuffer):
 
         adv_mean, adv_std, *_ = distributed.dist_statistics_scalar(data['adv_r'])
         cadv_mean, *_ = distributed.dist_statistics_scalar(data['adv_c'])
-        sadv_mean, *_ = distributed.dist_statistics_scalar(data['adv_s'])
+        sadv_mean, sadv_std, *_ = distributed.dist_statistics_scalar(data['adv_s'])
         if self._standardized_adv_r:
             data['adv_r'] = (data['adv_r'] - adv_mean) / (adv_std + 1e-8)
         if self._standardized_adv_c:
             data['adv_c'] = data['adv_c'] - cadv_mean
-            data['adv_s'] = data['adv_s'] - sadv_mean
+        if self._standardized_adv_s:
+            data['adv_s'] = (data['adv_s'] - sadv_mean) / (sadv_std + 1e-8)
 
         return data

@@ -229,6 +229,11 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                 - epochs: after building the dataset with 'samples', run mini-batch sgd with it for this many epochs.
                 - batch_size: size of minibatch.
         """
+        print(f'Saving the current state of the optimizer...')
+        default_dict = self.binary_critic_optimizer.state_dict()
+        for k, v in default_dict.items():
+            print(f"Key: {k}, Value: {v}")
+            # print(f"{key}: {default_dict.get('param_groups')[0][key]}")
 
         self.init_axiomatic_dataset(env, cfgs)
         losses = self.train_from_axiomatic_dataset(cfgs=cfgs,
@@ -253,6 +258,14 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         self.target_binary_critic = deepcopy(self.binary_critic)
         for param in self.target_binary_critic.parameters():
             param.requires_grad = False
+
+        print(f'After initialization, the optimizer state is...')
+        post_training_dict = self.binary_critic_optimizer.state_dict()
+        for k, v in post_training_dict.items():
+            print(f"Key: {k}, Value: {v}")
+
+        print(f'Loading default parameters to optimizer...')
+        self.binary_critic_optimizer.load_state_dict(default_dict)
 
     def optimistic_initialization(self, cfgs: Config, logger: Logger):
         """
@@ -469,7 +482,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
         def compute_safety_idx_max(values: torch.Tensor) -> torch.Tensor:
             safety_idx, _ = torch.max(values, dim=-1)
-            return safety_idx.unsqueeze(0)
+            return (safety_idx * (safety_idx > .5)).unsqueeze(0)
 
         def compute_safety_idx_avg(values: torch.Tensor) -> torch.Tensor:
             safety_idx  = torch.mean(values, dim=-1)

@@ -100,6 +100,7 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
         penalty_coefficient: float = 0,
         standardized_adv_r: bool = False,
         standardized_adv_c: bool = False,
+        standardized_adv_s: bool = False,  # these are false because they are passed in vector_onoff_policy_buffer
         device: torch.device = DEVICE_CPU,
     ) -> None:
         """Initialize an instance of :class:`OnPolicyBuffer`."""
@@ -118,6 +119,7 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
         )
         # Get the safety advantage estimator.
         self._advantage_estimator_safety = advantage_estimator_safety
+        self._standardized_adv_s = standardized_adv_s
 
         self.data['next_obs'] = torch.zeros_like(self.data['obs'])
         self.data['safety_idx'] = torch.zeros((size,), dtype=torch.float32, device=device)
@@ -223,6 +225,9 @@ class OnOffPolicyBuffer(OnPolicyBuffer):  # pylint: disable=too-many-instance-at
              'adv_s': self.data['adv_s'],
              'target_value_s': self.data['target_value_s']}
         )
+        sadv_mean, sadv_std, *_ = distributed.dist_statistics_scalar(data['adv_s'])
+        if self._standardized_adv_s:
+            data['adv_s'] = (data['adv_s'] - sadv_mean) / (sadv_std + 1e-8)
         return data
 
     def _calculate_safety_adv_and_value_target(self,

@@ -57,6 +57,8 @@ defaults:
     standardized_rew_adv: True
     # standardize cost advantage
     standardized_cost_adv: True
+    # 05/23/24 addition.
+    standardized_safety_adv: True
     # The type of advantage surrogate to use (in algo's method _compute_adv_surrogate)
     # penalty coefficient
     penalty_coef: 0.0
