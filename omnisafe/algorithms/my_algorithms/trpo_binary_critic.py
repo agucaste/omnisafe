@@ -153,6 +153,11 @@ class TRPOBinaryCritic(TRPO):
         self._logger.register_key('Loss/Loss_binary_critic')
         self._logger.register_key('Value/binary_critic')
 
+        "05/28/24: Registries for binary classifier"
+        self._logger.register_key('Classifier/Accuracy')
+        self._logger.register_key('Classifier/Power')
+        self._logger.register_key('Classifier/Miss_rate')
+
         # TODO: Move this to another place! here it's ugly.
         self._actor_critic.initialize_binary_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
 
@@ -189,10 +194,11 @@ class TRPOBinaryCritic(TRPO):
         #     data['adv_r'],
         #     data['adv_c'],
         # )
-        obs, act, logp, target_value_r, adv_r, adv_c, next_obs, cost = (
+        obs, act, logp, target_value_r, target_value_c, adv_r, adv_c, next_obs, cost = (
             data['obs'],
             data['act'],
             data['logp'],
+            data['target_value_r'],
             data['target_value_c'],
             data['adv_r'],
             data['adv_c'],
@@ -203,29 +209,30 @@ class TRPOBinaryCritic(TRPO):
         self._update_actor(obs, act, logp, adv_r, adv_c)
 
         dataloader = DataLoader(
-            dataset=TensorDataset(obs, act, target_value_r, cost, next_obs),
+            dataset=TensorDataset(obs, act, target_value_r, target_value_c, cost, next_obs),
             batch_size=self._cfgs.algo_cfgs.batch_size,
             shuffle=True,
         )
 
         for _ in range(self._cfgs.algo_cfgs.update_iters):
             for (
-                obs,
-                act,
-                target_value_r,
-                cost,
-                next_obs
+                o,
+                a,
+                tv_r,
+                tv_c,
+                c,
+                next_o
             ) in dataloader:
-                self._update_reward_critic(obs, target_value_r)
+                self._update_reward_critic(o, tv_r)
                 if self._cfgs.algo_cfgs.use_cost:
-                    self._update_binary_critic(obs, act, next_obs, cost)
+                    self._update_binary_critic(o, a, next_o, c)
+                    self._update_cost_critic(obs, tv_c)
 
             # Run one full pass of sgd on the axiomatic dataset
             self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
                                                             logger=self._logger,
                                                             epochs=1,
                                                             batch_size=self._cfgs.algo_cfgs.batch_size)
-
         self._logger.store(
             {
                 'Train/StopIter': self._cfgs.algo_cfgs.update_iters,
@@ -257,22 +264,12 @@ class TRPOBinaryCritic(TRPO):
 
         Args:
             obs (torch.Tensor): The ``observation`` sampled from buffer.
-            target_value_c (torch.Tensor): The ``target_value_c`` sampled from buffer.
         """
-        # print(f'Updating binary critic:\n'
-        #       f'obs: {obs.shape}\n'
-        #       f'act: {act.shape}\n'
-        #       f'next_obs: {next_obs.shape}\n'
-        #       )
+
         self._actor_critic.binary_critic_optimizer.zero_grad()
         # Im adding this
         value_c = self._actor_critic.binary_critic.assess_safety(obs, act)
 
-        # target_value_c = []
-        # for o_prime in next_obs:
-        #     a, *_ = self._actor_critic.step(o_prime)
-        #     target_c = self._actor_critic.target_binary_critic.assess_safety(o_prime, a)
-        #     target_value_c.append(target_c)
         with torch.no_grad():
             next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest')
             target_value_c = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
@@ -286,14 +283,14 @@ class TRPOBinaryCritic(TRPO):
         # filtering_mask = target_value_c >= .5
 
         # Update 05/15/24 : filter towards inequality depending on model cfgs.
-        if self._cfgs.model_cfgs.operator == 'equality':
+        if self._cfgs.model_cfgs.operator == 'inequality':
             # Filter dataset (04/30/24):
             filtering_mask = torch.logical_or(target_value_c >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
                                               torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
                                               )
             value_c_filter = value_c[filtering_mask]
             target_value_c_filter = target_value_c[filtering_mask]
-        elif self._cfgs.model_cfgs.operator == 'inequality':
+        elif self._cfgs.model_cfgs.operator == 'equality':
             value_c_filter = value_c
             target_value_c_filter = target_value_c
         else:

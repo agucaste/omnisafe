@@ -100,29 +100,65 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
 
         for _ in range(self._cfgs.algo_cfgs.update_iters):
             for (
-                obs,
-                act,
-                target_value_r,
-                target_value_c,
-                cost,
-                next_obs
+                o,
+                a,
+                tv_r,
+                tv_c,
+                c,
+                next_o
             ) in dataloader:
-                self._update_reward_critic(obs, target_value_r)
+                self._update_reward_critic(o, tv_r)
                 if self._cfgs.algo_cfgs.use_cost:
-                    self._update_cost_critic(obs, target_value_c)
-                    self._update_binary_critic(obs, act, next_obs, cost)
+                    self._update_cost_critic(o, tv_c)
+                    self._update_binary_critic(o, a, next_o, c)
 
             # Run one full pass of sgd on the axiomatic dataset
             self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
                                                             logger=self._logger,
                                                             epochs=1,)
-
         self._logger.store(
             {
                 'Train/StopIter': self._cfgs.algo_cfgs.update_iters,
                 'Value/Adv': adv_r.mean().item(),
             },
         )
+
+        "05/28/24: Compute accuracy over dataset."
+        with torch.no_grad():
+            predictions = self._actor_critic.binary_critic.get_safety_label(obs, act)
+            next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest')
+            labels = self._actor_critic.target_binary_critic.get_safety_label(next_obs, next_a)
+
+        labels = torch.maximum(labels, cost).clamp_max(1)
+        # Update 05/15/24 : filter towards inequality depending on model cfgs.
+        if self._cfgs.model_cfgs.operator == 'inequality':
+            # Filter dataset (04/30/24):
+            filtering_mask = torch.logical_or(labels >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
+                                              torch.logical_and(predictions < 0.5, labels < 0.5)  # safe: 0 <-- 0
+                                              )
+            predictions = predictions[filtering_mask]
+            labels = labels[filtering_mask]
+        elif self._cfgs.model_cfgs.operator == 'equality':
+            pass
+        else:
+            raise (ValueError, f'operator should be "equality" or "inequality", not {self._cfgs.model_cfgs.operator}')
+
+        # Get metrics
+        population = predictions.shape[0]
+        positive_population = torch.count_nonzero(labels == 1)
+
+        accuracy = torch.count_nonzero(predictions == labels) / population  # (TP + TN)/(P + N)
+        power = torch.count_nonzero(torch.logical_and(predictions == 1, labels == 1)) / positive_population
+        miss_rate = torch.count_nonzero(torch.logical_and(predictions == 0, labels == 1)) / positive_population
+
+        self._logger.store(
+            {
+                'Classifier/Accuracy': accuracy.item(),
+                'Classifier/Power': power.item(),
+                'Classifier/Miss_rate': miss_rate.item()
+            },
+        )
+
 
     def _update_actor(  # pylint: disable=too-many-arguments
         self,

@@ -165,7 +165,7 @@ class BinaryCritic(Critic):
         safety_index = torch.stack(self.forward(obs=obs, act=a)).mean(dim=0)
         return safety_index
 
-    def is_unsafe(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    def get_safety_label(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
         """
         returns whether an (o,a) pair is unsafe (1) or safe (0).
         Args:
