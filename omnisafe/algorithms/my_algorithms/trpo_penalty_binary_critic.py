@@ -158,6 +158,8 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
                 'Classifier/Miss_rate': miss_rate.item()
             },
         )
+        print(f'updating target binary critic with polyak coefficient {self._cfgs.algo_cfgs.polyak}')
+        self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak)
 
 
     def _update_actor(  # pylint: disable=too-many-arguments

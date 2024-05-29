@@ -35,7 +35,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=9, help='Seed parameter')
-    parser.add_argument('--torch_threads', type=int, default=16, help='Number of threads in torch')
+    parser.add_argument('--torch_threads', type=int, default=4, help='Number of threads in torch')
 
     args= parser.parse_args()
 

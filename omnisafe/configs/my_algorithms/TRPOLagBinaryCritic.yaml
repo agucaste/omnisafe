@@ -72,6 +72,8 @@ defaults:
     fvp_obs: None
     # The sub-sampling rate of the observation
     fvp_sample_freq: 1
+    # The soft update coefficient
+    polyak: 1
   # logger configurations
   logger_cfgs:
     # use wandb for logging
