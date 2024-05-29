@@ -117,6 +117,9 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         self.action_criterion = model_cfgs.action_criterion
         self.setup_compute_safety_idx(criterion=model_cfgs.safety_index_criterion)
 
+        self._low, self._high, = self.actor.act_space.low, self.actor.act_space.high
+        self._act_dim = self.actor._act_dim
+
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
         obs_samples = cfgs.model_cfgs.binary_critic.axiomatic_data.o
@@ -382,8 +385,24 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         """
         return self.step(obs, deterministic=deterministic)
 
+    def sample_uniform_actions(self, obs: torch.Tensor) -> torch.Tensor:
+        """
+
+        Args:
+            obs ():
+
+        Returns:
+
+        """
+        assert len(obs.shape) == 2
+
+        samples = obs.shape[0]
+        act = np.random.uniform(low=self._low, high=self._high, size=(samples, self._act_dim)).astype(np.float32)
+        act = torch.from_numpy(act)
+        return act
+
     def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, criterion: Optional[str] = None,
-                         ) -> tuple[torch.Tensor, ...]:
+                         mode: str = 'on_policy', ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
         A candidate action is proposed.
             - if it is safe (measured by critics) it gets returned.
@@ -399,6 +418,10 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             criterion (str): (Update 05/15/24)
                             'first_safe' or 'safest'. 'first' selects the first action that was deemed safe, 'safest' grabs
                              the safest one among all the sampled ones.
+            mode (str): (05/28/24):
+                    whether to use 'on_policy' (using the actor) or 'off_policy' (using uniform samples).
+                    off_policy is meant to be used to compute the bellman residual, and should be used in combination
+                    with criterion='safest'.
 
         Returns:
             a: A candidate safe action, or the safest action among the samples.
@@ -412,7 +435,11 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         repeated_obs = self.repeat_obs(obs, self.binary_critic.max_resamples)  # (B*R, O)
         with torch.no_grad():
             # Get the actions
-            a = self.actor.predict(repeated_obs, deterministic=deterministic).to(self.device)  # (B*R, A)
+            if mode == 'on_policy':
+                a = self.actor.predict(repeated_obs, deterministic=deterministic).to(self.device)  # (B*R, A)
+            elif mode == 'off_policy':
+                assert criterion == 'safest'
+                a = self.sample_uniform_actions(repeated_obs).to(self.device)
             # Assess their safety
             safety_val = self.binary_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
                                                                                        self.binary_critic.max_resamples)

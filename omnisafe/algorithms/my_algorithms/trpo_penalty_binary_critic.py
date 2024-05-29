@@ -126,7 +126,7 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
         "05/28/24: Compute accuracy over dataset."
         with torch.no_grad():
             predictions = self._actor_critic.binary_critic.get_safety_label(obs, act)
-            next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest')
+            next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
             labels = self._actor_critic.target_binary_critic.get_safety_label(next_obs, next_a)
 
         labels = torch.maximum(labels, cost).clamp_max(1)
