@@ -97,9 +97,12 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         # Update the maximum number of resamples.
         self.binary_critic.max_resamples = model_cfgs.max_resamples
 
-        self.target_binary_critic: Critic = deepcopy(self.binary_critic)
-        for param in self.target_binary_critic.parameters():
-            param.requires_grad = False
+        # self.target_binary_critic: Critic = deepcopy(self.binary_critic)
+        # for param in self.target_binary_critic.parameters():
+        #     param.requires_grad = False
+        self.target_binary_critic = None
+
+
         self.add_module('binary_critic', self.binary_critic)
         if model_cfgs.critic.lr is not None:
             self.binary_critic_optimizer: optim.Optimizer
@@ -234,9 +237,6 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         """
         print(f'Saving the current state of the optimizer...')
         default_dict = self.binary_critic_optimizer.state_dict()
-        for k, v in default_dict.items():
-            print(f"Key: {k}, Value: {v}")
-            # print(f"{key}: {default_dict.get('param_groups')[0][key]}")
 
         self.init_axiomatic_dataset(env, cfgs)
         losses = self.train_from_axiomatic_dataset(cfgs=cfgs,
@@ -244,15 +244,15 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                                                    epochs=None
                                                    )
 
-        plot_fp = logger._log_dir + '/binary_critic_init_loss.png'
-        plt.figure()
-        plt.plot(np.array(losses))
-        plt.xlabel('Gradient steps')
-        plt.ylabel('Loss')
-        plt.title('Binary critic: BCE initialization loss')
-        plt.savefig(plot_fp, dpi=200)
-        print(f'Saving binary critic initialization loss at {plot_fp}')
-        plt.close()
+        # plot_fp = logger._log_dir + '/binary_critic_init_loss.png'
+        # plt.figure()
+        # plt.plot(np.array(losses))
+        # plt.xlabel('Gradient steps')
+        # plt.ylabel('Loss')
+        # plt.title('Binary critic: BCE initialization loss')
+        # plt.savefig(plot_fp, dpi=200)
+        # print(f'Saving binary critic initialization loss at {plot_fp}')
+        # plt.close()
 
         self.optimistic_initialization(cfgs, logger)
 
@@ -262,13 +262,12 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         for param in self.target_binary_critic.parameters():
             param.requires_grad = False
 
-        print(f'After initialization, the optimizer state is...')
         post_training_dict = self.binary_critic_optimizer.state_dict()
-        for k, v in post_training_dict.items():
-            print(f"Key: {k}, Value: {v}")
-
-        print(f'Loading default parameters to optimizer...')
         self.binary_critic_optimizer.load_state_dict(default_dict)
+
+        self.target_binary_critic: Critic = deepcopy(self.binary_critic)
+        for param in self.target_binary_critic.parameters():
+            param.requires_grad = False
 
     def optimistic_initialization(self, cfgs: Config, logger: Logger):
         """
