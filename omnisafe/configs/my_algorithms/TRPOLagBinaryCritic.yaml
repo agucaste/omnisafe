@@ -60,6 +60,10 @@ defaults:
     # 05/23/24 addition.
     standardized_safety_adv: True
     # The type of advantage surrogate to use (in algo's method _compute_adv_surrogate)
+    # the maximum number of epochs for binary critic update
+    binary_critic_update_iters: 100
+    # Whether to train binary critic until self-consistency or run mini-batch sgd for 'update_iters'
+    check_self_consistency: True
     # penalty coefficient
     penalty_coef: 0.0
     # use cost

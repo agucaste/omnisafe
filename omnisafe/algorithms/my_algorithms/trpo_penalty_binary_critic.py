@@ -22,6 +22,7 @@ from torch.distributions import Distribution
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.utils.data import DataLoader, TensorDataset
 
+from rich.progress import track
 
 from omnisafe.algorithms import registry
 from omnisafe.algorithms.on_policy.base.trpo import TRPO
@@ -110,7 +111,8 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
                 self._update_reward_critic(o, tv_r)
                 if self._cfgs.algo_cfgs.use_cost:
                     self._update_cost_critic(o, tv_c)
-                    self._update_binary_critic(o, a, next_o, c)
+                    if not self._cfgs.algo_cfgs.check_self_consistency:
+                        self._update_binary_critic(o, a, next_o, c)
 
             # Run one full pass of sgd on the axiomatic dataset
             self._actor_critic.train_from_axiomatic_dataset(cfgs=self._cfgs,
@@ -123,39 +125,19 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
             },
         )
 
+        # (30/05/24) Update binary critic until miss_rate==1
+        if self._cfgs.algo_cfgs.check_self_consistency:
+            self._update_binary_critic_until_consistency(obs, act, cost, next_obs)
+
+
         "05/28/24: Compute accuracy over dataset."
-        with torch.no_grad():
-            predictions = self._actor_critic.binary_critic.get_safety_label(obs, act)
-            next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
-            labels = self._actor_critic.target_binary_critic.get_safety_label(next_obs, next_a)
-
-        labels = torch.maximum(labels, cost).clamp_max(1)
-        # Update 05/15/24 : filter towards inequality depending on model cfgs.
-        if self._cfgs.model_cfgs.operator == 'inequality':
-            # Filter dataset (04/30/24):
-            filtering_mask = torch.logical_or(labels >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
-                                              torch.logical_and(predictions < 0.5, labels < 0.5)  # safe: 0 <-- 0
-                                              )
-            predictions = predictions[filtering_mask]
-            labels = labels[filtering_mask]
-        elif self._cfgs.model_cfgs.operator == 'equality':
-            pass
-        else:
-            raise (ValueError, f'operator should be "equality" or "inequality", not {self._cfgs.model_cfgs.operator}')
-
-        # Get metrics
-        population = predictions.shape[0]
-        positive_population = torch.count_nonzero(labels == 1)
-
-        accuracy = torch.count_nonzero(predictions == labels) / population  # (TP + TN)/(P + N)
-        power = torch.count_nonzero(torch.logical_and(predictions == 1, labels == 1)) / positive_population
-        miss_rate = torch.count_nonzero(torch.logical_and(predictions == 0, labels == 1)) / positive_population
-
+        metrics = self._actor_critic.classifier_metrics(obs, act, next_obs, cost,
+                                                        operator=self._cfgs.model_cfgs.operator)
         self._logger.store(
             {
-                'Classifier/Accuracy': accuracy.item(),
-                'Classifier/Power': power.item(),
-                'Classifier/Miss_rate': miss_rate.item()
+                'Classifier/Accuracy': metrics['accuracy'].item(),
+                'Classifier/Power': metrics['power'].item(),
+                'Classifier/Miss_rate': metrics['miss_rate'].item()
             },
         )
         print(f'updating target binary critic with polyak coefficient {self._cfgs.algo_cfgs.polyak}')
@@ -233,6 +215,42 @@ class TRPOPenaltyBinaryCritic(TRPOBinaryCritic):
                 'Misc/AcceptanceStep': accept_step,
             },
         )
+
+    def _update_binary_critic_until_consistency(self, obs, act, cost, next_obs) -> None:
+        """
+        Runs sgd
+        Args:
+            obs ():
+            act ():
+            next_obs ():
+            cost ():
+
+        Returns:
+
+        """
+        dataloader = DataLoader(
+            dataset=TensorDataset(obs, act, next_obs, cost),
+            batch_size=self._cfgs.algo_cfgs.batch_size,
+            shuffle=True,
+        )
+        self_consistent = False
+        epoch = 0
+        for epoch in track(range(self._cfgs.algo_cfgs.binary_critic_update_iters), description='Updating binary critic...'):
+            # Run sgd on the dataset
+            for o, a, next_o, c in dataloader:
+                self._update_binary_critic(o, a, next_o, c)
+            metrics = self._actor_critic.classifier_metrics(obs, act, next_obs, cost, operator=self._cfgs.model_cfgs.operator)
+            miss_rate = metrics['miss_rate'].item()
+            if miss_rate == 0:
+                # classifier is self-consistent accross unsafe samples.
+                self_consistent = True
+                print(f'Achieved self_consistency over unsafe samples at epoch={epoch}')
+                break
+            epoch += 1
+        self._logger.store(
+            {'Classifier/per_step_epochs': epoch}
+        )
+        return
 
     def _compute_adv_surrogate(  # pylint: disable=unused-argument
         self,

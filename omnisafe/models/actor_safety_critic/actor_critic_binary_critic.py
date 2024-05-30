@@ -525,6 +525,57 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         else:
             raise (ValueError, f'Criterion for computing_safety_idx should be "min", "max" or "avg", not {criterion}')
 
+    def classifier_metrics(self,
+                           obs: torch.Tensor,
+                           act: torch.Tensor,
+                           next_obs: torch.Tensor,
+                           cost,
+                           operator:str) -> dict[str, torch.Tensor]:
+        """
+        Gets the metrics of the binary classifier, for a given {(o, a, next_o, cost)} dataset.
+        Args:
+            obs (): Observation tensor in buffer.
+            act (): Action tensor in buffer
+            next_obs (): Next observation
+            cost (): costs.
+            operator (): Either 'equality' or 'inequality' (performs the filtering process)
+
+        Returns:
+            dictionary with the classifier's accuracy, power, and miss_rate
+        """
+        with torch.no_grad():
+            predictions = self.binary_critic.get_safety_label(obs, act)
+            next_a, *_ = self.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
+            labels = self.target_binary_critic.get_safety_label(next_obs, next_a)
+
+        labels = torch.maximum(labels, cost).clamp_max(1)
+        # Update 05/15/24 : filter towards inequality depending on model cfgs.
+        if operator == 'inequality':
+            # Filter dataset (04/30/24):
+            filtering_mask = torch.logical_or(labels >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
+                                              torch.logical_and(predictions < 0.5, labels < 0.5)  # safe: 0 <-- 0
+                                              )
+            predictions = predictions[filtering_mask]
+            labels = labels[filtering_mask]
+        elif operator == 'equality':
+            pass
+        else:
+            raise (ValueError, f'operator should be "equality" or "inequality", not {operator}')
+
+        # Get metrics
+        population = predictions.shape[0]
+        positive_population = torch.count_nonzero(labels == 1)
+
+        accuracy = torch.count_nonzero(predictions == labels) / population  # (TP + TN)/(P + N)
+        power = torch.count_nonzero(torch.logical_and(predictions == 1, labels == 1)) / positive_population
+        miss_rate = torch.count_nonzero(torch.logical_and(predictions == 0, labels == 1)) / positive_population
+
+        metrics = {
+            'accuracy': accuracy,
+            'power': power,
+            'miss_rate': miss_rate
+        }
+        return metrics
 
 
     @staticmethod

@@ -157,6 +157,7 @@ class TRPOBinaryCritic(TRPO):
         self._logger.register_key('Classifier/Accuracy')
         self._logger.register_key('Classifier/Power')
         self._logger.register_key('Classifier/Miss_rate')
+        self._logger.register_key('Classifier/per_step_epochs')
 
         # TODO: Move this to another place! here it's ugly.
         self._actor_critic.initialize_binary_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
