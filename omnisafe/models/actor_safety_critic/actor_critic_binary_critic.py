@@ -265,10 +265,6 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         post_training_dict = self.binary_critic_optimizer.state_dict()
         self.binary_critic_optimizer.load_state_dict(default_dict)
 
-        self.target_binary_critic: Critic = deepcopy(self.binary_critic)
-        for param in self.target_binary_critic.parameters():
-            param.requires_grad = False
-
     def optimistic_initialization(self, cfgs: Config, logger: Logger):
         """
         Do optimistic initialization -> train with random 'safe' samples.
@@ -469,8 +465,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
         # Similar to probability of sampling an unsafe action
 
-        p_unsafe = (self.binary_critic.max_resamples - count_safe).mean(dtype=torch.float32).unsqueeze(0)
-        return a, p_unsafe, num_resamples
+        # p_unsafe = (self.binary_critic.max_resamples - count_safe).mean(dtype=torch.float32).unsqueeze(0)
+        return a, safety_idx, num_resamples
 
     def predict(self, obs: torch.Tensor, deterministic: bool):
         """This function is added for the purpose of the 'evaluator', after training.
