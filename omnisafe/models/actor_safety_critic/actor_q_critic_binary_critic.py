@@ -105,13 +105,14 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         self.axiomatic_dataset = None
 
         self.action_criterion = model_cfgs.action_criterion  # whether to take 'safest' or 'first safe' action
-        self.setup_compute_safety_idx(criterion=model_cfgs.safety_index_criterion)
+        # self.setup_compute_safety_idx(criterion=model_cfgs.safety_index_criterion)
 
         self._low, self._high, = self.actor.act_space.low, self.actor.act_space.high
         self._act_dim = self.actor._act_dim
 
         # Check whether to act in a 'safe' or 'most_uncertain' manner.
-        self.how_to_act = model_cfgs.cost_critic.how_to_act
+        self.how_to_act = 'safe'
+        # self.how_to_act = model_cfgs.binary_critic.how_to_act
         self.setup_step_method()
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
