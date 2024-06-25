@@ -80,9 +80,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         act_space: OmnisafeSpace,
         model_cfgs: ModelConfig,
         epochs: int,
-        env: OnOffPolicyAdapter
     ) -> None:
-        """Initialize an instance of :class:`ConstraintActorCritic`."""
+        """Initialize an instance of :class:`ActorCriticBinaryCritic`."""
         super().__init__(obs_space, act_space, model_cfgs, epochs)
 
         self.binary_critic: BinaryCritic = CriticBuilder(
@@ -96,10 +95,6 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         ).build_critic('b')
         # Update the maximum number of resamples.
         self.binary_critic.max_resamples = model_cfgs.max_resamples
-
-        # self.target_binary_critic: Critic = deepcopy(self.binary_critic)
-        # for param in self.target_binary_critic.parameters():
-        #     param.requires_grad = False
         self.target_binary_critic = None
 
 
@@ -111,13 +106,10 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                 lr=model_cfgs.critic.lr,
             )
 
-        # Save the environment (this may be useful if one is stepping with a uniformly safe policy, see step() )
-        # self._env = env
-        # The axiomatic dataset with 'safe' transitions, see initialize_binary_critic()
         self.axiomatic_dataset = {}
         self.device = torch.device('cpu')  # to be overwritten (if needed) by init_axiomatic_dataset
 
-        self.action_criterion = model_cfgs.action_criterion
+        self.action_criterion = model_cfgs.action_criterion  # whether to take 'safest' or 'first safe' action
         self.setup_compute_safety_idx(criterion=model_cfgs.safety_index_criterion)
 
         self._low, self._high, = self.actor.act_space.low, self.actor.act_space.high
@@ -492,7 +484,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
     def setup_compute_safety_idx(self, criterion):
         """
-        Sets the attribute of 'compute_safety_idx' method, based on the criterion. This is called once during __init__.
+        Sets the 'compute_safety_idx' method, based on the criterion. This is called once during __init__.
         Args:
             criterion (str): 'max', 'min' or 'average'. This will accordingly fix the behavior of 'compute_safety_idx'.
             Compute_safety_idx is called during step() method.
@@ -507,7 +499,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             return (safety_idx * (safety_idx > .5)).unsqueeze(0)
 
         def compute_safety_idx_avg(values: torch.Tensor) -> torch.Tensor:
-            safety_idx  = torch.mean(values, dim=-1)
+            safety_idx = torch.mean(values, dim=-1)
             return safety_idx.unsqueeze(0)
 
         print(f"Setting compute_safety_idx criterion as {criterion}")
