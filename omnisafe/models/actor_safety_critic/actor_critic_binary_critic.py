@@ -106,7 +106,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                 lr=model_cfgs.critic.lr,
             )
 
-        self.axiomatic_dataset = {}
+        self.axiomatic_dataset = {}  # TODO: Delete this
         self.device = torch.device('cpu')  # to be overwritten (if needed) by init_axiomatic_dataset
 
         self.action_criterion = model_cfgs.action_criterion  # whether to take 'safest' or 'first safe' action
@@ -235,17 +235,6 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                                                    logger=logger,
                                                    epochs=None
                                                    )
-
-        # plot_fp = logger._log_dir + '/binary_critic_init_loss.png'
-        # plt.figure()
-        # plt.plot(np.array(losses))
-        # plt.xlabel('Gradient steps')
-        # plt.ylabel('Loss')
-        # plt.title('Binary critic: BCE initialization loss')
-        # plt.savefig(plot_fp, dpi=200)
-        # print(f'Saving binary critic initialization loss at {plot_fp}')
-        # plt.close()
-
         self.optimistic_initialization(cfgs, logger)
 
         # Sync parameters with binary_critics
@@ -253,8 +242,6 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         self.target_binary_critic = deepcopy(self.binary_critic)
         for param in self.target_binary_critic.parameters():
             param.requires_grad = False
-
-        post_training_dict = self.binary_critic_optimizer.state_dict()
         self.binary_critic_optimizer.load_state_dict(default_dict)
 
     def optimistic_initialization(self, cfgs: Config, logger: Logger):
@@ -438,8 +425,6 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             chosen_idx = first_safe * (count_safe > 0) + safest * (count_safe == 0)
             num_resamples = first_safe * (count_safe > 0) + self.binary_critic.max_resamples * (count_safe == 0)
         elif criterion == 'safest':
-            # print(f' taking safest action')
-            # print(f' returning safest index!')
             chosen_idx = safest
             num_resamples = self.binary_critic.max_resamples * torch.ones_like(count_safe)
         else:
@@ -453,11 +438,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         # Update 05/12/24:
         # Instead of returning the safety value of the 'taken' action, return the (average) number of
         # 'classified unsafe' actions. This will be fed back to update the _actor_
-        safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
-
-        # Similar to probability of sampling an unsafe action
-
-        # p_unsafe = (self.binary_critic.max_resamples - count_safe).mean(dtype=torch.float32).unsqueeze(0)
+        # safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
         return a, safety_idx, num_resamples
 
     def predict(self, obs: torch.Tensor, deterministic: bool):

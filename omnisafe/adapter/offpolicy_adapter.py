@@ -131,7 +131,7 @@ class OffPolicyAdapter(OnlineAdapter):
                 )
             else:
                 act = agent.step(self._current_obs, deterministic=False)
-            print(f'action is {act}, of shape {act.shape}')
+            # print(f'action is {act}, of shape {act.shape}')
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
 
             self._log_value(reward=reward, cost=cost, info=info)
