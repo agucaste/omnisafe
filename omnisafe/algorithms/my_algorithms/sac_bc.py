@@ -17,6 +17,8 @@
 import torch
 from torch import nn, optim
 from torch.nn.utils.clip_grad import clip_grad_norm_
+from torch.utils.data import DataLoader, TensorDataset
+from rich.progress import track
 
 from typing import Any
 
@@ -173,7 +175,7 @@ class SACBinaryCritic(SAC):
         log_prob = self._actor_critic.actor.log_prob(action)
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         log_safety = torch.log(1 - self._actor_critic.binary_critic.assess_safety(obs, action))
-        print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n')
+        # print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n')
         return (self._alpha * log_prob - torch.min(q1_value_r, q2_value_r) - log_safety).mean()
 
     def _log_when_not_update(self) -> None:
@@ -190,3 +192,124 @@ class SACBinaryCritic(SAC):
                     'Loss/alpha_loss': 0.0,
                 },
             )
+
+    def _update(self):
+        # Update actor and reward critic like sac.
+        super()._update()
+        # Check to see if we should update the binary critic
+        if self._update_count >= self._cfgs.algo_cfgs.bc_start and self._update_count % self._cfgs.algo_cfgs.bc_delay == 0:
+            data = self._buf.get()
+            obs, act, next_obs, cost = (
+                data['obs'],
+                data['act'],
+                data['next_obs'],
+                data['cost']
+            )
+            self._update_binary_critic_until_consistency(obs, act, cost, next_obs)
+            "05/28/24: Compute accuracy over dataset."
+            metrics = self._actor_critic.classifier_metrics(obs, act, next_obs, cost,
+                                                            operator=self._cfgs.model_cfgs.operator)
+            self._logger.store(
+                {
+                    'Classifier/Accuracy': metrics['accuracy'].item(),
+                    'Classifier/Power': metrics['power'].item(),
+                    'Classifier/Miss_rate': metrics['miss_rate'].item()
+                },
+            )
+
+    def _update_binary_critic_until_consistency(self, obs, act, cost, next_obs):
+        """Updates the binary critic until self-consistency.
+        Copied from method from trpo_penalty_binary_critic
+        """
+
+        dataloader = DataLoader(
+            dataset=TensorDataset(obs, act, next_obs, cost),
+            batch_size=self._cfgs.algo_cfgs.batch_size,
+            shuffle=True,
+        )
+        self_consistent = False
+        epoch = 0
+        for epoch in track(range(self._cfgs.algo_cfgs.binary_critic_max_epochs),
+                           description='Updating binary critic...'):
+            # Run sgd on the dataset
+            for o, a, next_o, c in dataloader:
+                self._update_binary_critic(o, a, next_o, c)
+            metrics = self._actor_critic.classifier_metrics(obs, act, next_obs, cost,
+                                                            operator=self._cfgs.model_cfgs.operator)
+            miss_rate = metrics['miss_rate'].item()
+            if miss_rate < 1e-2:
+                # classifier is self-consistent accross unsafe samples.
+                self_consistent = True
+                # print(f'Achieved self_consistency rate of {1-miss_rate:.4f} over unsafe samples at epoch={epoch}')
+                break
+            epoch += 1
+        self._logger.store(
+            {'Classifier/per_step_epochs': epoch}
+        )
+        return
+
+    def _update_binary_critic(self, obs: torch.Tensor, act: torch.Tensor,
+                              next_obs: torch.Tensor, cost: torch.Tensor) -> None:
+        r"""Update value network under a double for loop.
+
+        The loss function is ``MSE loss``, which is defined in ``torch.nn.MSELoss``.
+        Specifically, the loss function is defined as:
+
+        .. math::
+
+            L = \frac{1}{N} \sum_{i=1}^N (\hat{V} - V)^2
+
+        where :math:`\hat{V}` is the predicted cost and :math:`V` is the target cost.
+
+        #. Compute the loss function.
+        #. Add the ``critic norm`` to the loss function if ``use_critic_norm`` is ``True``.
+        #. Clip the gradient if ``use_max_grad_norm`` is ``True``.
+        #. Update the network by loss function.
+
+        Args:
+            obs (torch.Tensor): The ``observation`` sampled from buffer.
+        """
+
+        self._actor_critic.binary_critic_optimizer.zero_grad()
+        # Im adding this
+        value_c = self._actor_critic.binary_critic.assess_safety(obs, act)
+
+        with torch.no_grad():
+            next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
+            target_value_c = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
+        target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
+
+        # Update 05/15/24 : filter towards inequality depending on model cfgs.
+        if self._cfgs.model_cfgs.operator == 'inequality':
+            # Filter dataset (04/30/24):
+            filtering_mask = torch.logical_or(target_value_c >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
+                                              torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
+                                              )
+            value_c_filter = value_c[filtering_mask]
+            target_value_c_filter = target_value_c[filtering_mask]
+        elif self._cfgs.model_cfgs.operator == 'equality':
+            value_c_filter = value_c
+            target_value_c_filter = target_value_c
+        else:
+            raise (ValueError, f'operator should be "equality" or "inequality", not {self._cfgs.model_cfgs.operator}')
+        loss = nn.functional.binary_cross_entropy(value_c_filter, target_value_c_filter)
+
+        if self._cfgs.algo_cfgs.use_critic_norm:
+            for param in self._actor_critic.binary_critic.parameters():
+                loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
+
+        loss.backward()
+
+        if self._cfgs.algo_cfgs.use_max_grad_norm:
+            clip_grad_norm_(
+                self._actor_critic.binary_critic.parameters(),
+                self._cfgs.algo_cfgs.max_grad_norm,
+            )
+        # distributed.avg_grads(self._actor_critic.binary_critic)
+        self._actor_critic.binary_critic_optimizer.step()
+
+        self._logger.store({'Loss/Loss_binary_critic': loss.mean().item(),
+                            'Value/binary_critic': value_c_filter.mean().item(),
+                            },
+                           )
+

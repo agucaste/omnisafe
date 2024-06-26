@@ -274,14 +274,7 @@ class TRPOBinaryCritic(TRPO):
         with torch.no_grad():
             next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
             target_value_c = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
-
-        # print('Training binary critic....')
-        # print(f'last cost_value has shape {target_c.shape}')
-        # target_value_c = torch.stack(target_value_c)
-        # print(f'target cost_value tensor has shape {target_value_c.shape}')
-
         target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
-        # filtering_mask = target_value_c >= .5
 
         # Update 05/15/24 : filter towards inequality depending on model cfgs.
         if self._cfgs.model_cfgs.operator == 'inequality':

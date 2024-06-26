@@ -22,7 +22,8 @@ from omnisafe.utils.tools import custom_cfgs_to_dict, update_dict
 
 if __name__ == '__main__':
     env_id = 'SafetyPointCircle1-v0'
-
+    algo = 'SACBinaryCritic'
+    
     if False:  # torch.cuda.is_available():
         # Get the free and total memory on each device
         mem_free, mem_total = zip(*[torch.cuda.mem_get_info(i) for i in range(torch.cuda.device_count())])
@@ -49,7 +50,7 @@ if __name__ == '__main__':
 
     custom_cfgs.update({})
 
-    agent = omnisafe.Agent('TRPOLagBinaryCritic', env_id, custom_cfgs=custom_cfgs)
+    agent = omnisafe.Agent(algo, env_id, custom_cfgs=custom_cfgs)
     agent.learn()
 
     agent.plot(smooth=1)

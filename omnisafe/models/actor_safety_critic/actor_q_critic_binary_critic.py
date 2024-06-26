@@ -339,6 +339,14 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         a = a.view(self.actor._act_space.shape)
         return a
 
+    def sample_uniform_actions(self, obs: torch.Tensor) -> torch.Tensor:
+        assert len(obs.shape) == 2
+
+        samples = obs.shape[0]
+        act = np.random.uniform(low=self._low, high=self._high, size=(samples, self._act_dim)).astype(np.float32)
+        act = torch.from_numpy(act)
+        return act
+
     def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, criterion: Optional[str] = None,
                          mode: str = 'on_policy', ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
@@ -454,10 +462,10 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         Args:
             tau (float): The polyak averaging factor.
         """
-        # super().polyak_update(tau)
+        super().polyak_update(tau)
         for target_param, param in zip(
-            self.target_cost_critic.parameters(),
-            self.cost_critic.parameters(),
+            self.target_binary_critic.parameters(),
+            self.binary_critic.parameters(),
         ):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 

@@ -142,3 +142,10 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
         env_idx = torch.arange(self._num_envs, device=self._device).repeat(self._batch_size)
         # print(f'indeces are {idx}\n env_idx are {env_idx}')
         return {key: value[idx, env_idx] for key, value in self.data.items()}
+
+    # Update 06/26/24
+    def get(self) -> dict[str, torch.Tensor]:
+        idx = torch.arange(0, self._size * self._num_envs, device=self._device)
+        env_idx = torch.arange(self._num_envs, device=self._device).repeat(self._size)
+        return {key: value[idx, env_idx] for key, value in self.data.items()}
+        return data
