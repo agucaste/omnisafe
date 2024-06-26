@@ -23,6 +23,9 @@ from typing import Any
 from omnisafe.algorithms import registry
 from omnisafe.algorithms.off_policy.sac import SAC
 from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic
+from omnisafe.common.buffer.vector_myoffpolicy_buffer import VectorMyOffPolicyBuffer
+from omnisafe.adapter import MyOffPolicyAdapter
+
 
 
 @registry.register
@@ -53,6 +56,64 @@ class SACBinaryCritic(SAC):
             epochs=self._epochs,
         ).to(self._device)
 
+    def _init_env(self) -> None:
+        """Initialize the environment.
+
+        OmniSafe uses :class:`omnisafe.adapter.OffPolicyAdapter` to adapt the environment to this
+        algorithm.
+
+        User can customize the environment by inheriting this method.
+
+        Examples:
+            # >>> def _init_env(self) -> None:
+            # ...     self._env = CustomAdapter()
+
+        Raises:
+            AssertionError: If the number of steps per epoch is not divisible by the number of
+                environments.
+            AssertionError: If the total number of steps is not divisible by the number of steps per
+                epoch.
+        """
+        self._env: MyOffPolicyAdapter = MyOffPolicyAdapter(
+            self._env_id,
+            self._cfgs.train_cfgs.vector_env_nums,
+            self._seed,
+            self._cfgs,
+        )
+        assert (
+            self._cfgs.algo_cfgs.steps_per_epoch % self._cfgs.train_cfgs.vector_env_nums == 0
+        ), 'The number of steps per epoch is not divisible by the number of environments.'
+
+        assert (
+            int(self._cfgs.train_cfgs.total_steps) % self._cfgs.algo_cfgs.steps_per_epoch == 0
+        ), 'The total number of steps is not divisible by the number of steps per epoch.'
+        self._epochs: int = int(
+            self._cfgs.train_cfgs.total_steps // self._cfgs.algo_cfgs.steps_per_epoch,
+        )
+        self._epoch: int = 0
+        self._steps_per_epoch: int = (
+            self._cfgs.algo_cfgs.steps_per_epoch // self._cfgs.train_cfgs.vector_env_nums
+        )
+
+        self._update_cycle: int = self._cfgs.algo_cfgs.update_cycle
+        assert (
+            self._steps_per_epoch % self._update_cycle == 0
+        ), 'The number of steps per epoch is not divisible by the number of steps per sample.'
+        self._samples_per_epoch: int = self._steps_per_epoch // self._update_cycle
+        self._update_count: int = 0
+
+    def _init(self) -> None:
+        super()._init()
+        self._buf: VectorMyOffPolicyBuffer = VectorMyOffPolicyBuffer(
+            obs_space=self._env.observation_space,
+            act_space=self._env.action_space,
+            size=self._cfgs.algo_cfgs.size,
+            batch_size=self._cfgs.algo_cfgs.batch_size,
+            num_envs=self._cfgs.train_cfgs.vector_env_nums,
+            device=self._device,
+        )
+
+
     def _init_log(self) -> None:
         super()._init_log()
         """
@@ -61,6 +122,9 @@ class SACBinaryCritic(SAC):
         self._logger.register_key('Metrics/NumResamples', window_length=50)  # number of action resamples per episode
         self._logger.register_key('Metrics/NumInterventions',
                                   window_length=50)  # if an action is resampled that counts as an intervention
+        self._logger.register_key('Metrics/TestNumResamples', window_length=50)
+        self._logger.register_key('Metrics/TestNumInterventions', window_length=50)
+
         self._logger.register_key('Loss/binary_critic_axiomatic')
         self._logger.register_key('Loss/Loss_binary_critic')
         self._logger.register_key('Value/binary_critic')
@@ -109,7 +173,8 @@ class SACBinaryCritic(SAC):
         log_prob = self._actor_critic.actor.log_prob(action)
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         log_safety = torch.log(1 - self._actor_critic.binary_critic.assess_safety(obs, action))
-        return (self._alpha * log_prob - torch.min(q1_value_r, q2_value_r) * log_safety).mean()
+        print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n')
+        return (self._alpha * log_prob - torch.min(q1_value_r, q2_value_r) - log_safety).mean()
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""

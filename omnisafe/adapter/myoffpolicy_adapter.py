@@ -138,7 +138,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
             logger (Logger): Logger, to log ``EpRet``, ``EpCost``, ``EpLen``.
         """
         for _ in range(rollout_step):
-            act, safety_idx, num_resamples = agent.step(self._current_obs)
+            act, safety_idx, num_resamples = agent.step(self._current_obs, deterministic=False)
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
             # print(f'picking safe action {act}')
             # print(f'next_obs: {next_obs} of shape {next_obs.shape}\n'
