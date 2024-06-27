@@ -58,6 +58,11 @@ class SACBinaryCritic(SAC):
             epochs=self._epochs,
         ).to(self._device)
 
+        # Swap action_criterion to 'first_safe'
+        print(f"Initializing actor critic's action criterion as 'first_safe', "
+              f"to be switched to {self._actor_critic.action_criterion}")
+        self._actor_critic.action_criterion = 'first_safe'
+
     def _init_env(self) -> None:
         """Initialize the environment.
 
@@ -174,10 +179,19 @@ class SACBinaryCritic(SAC):
         action = self._actor_critic.actor.predict(obs, deterministic=False)
         log_prob = self._actor_critic.actor.log_prob(action)
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
-        log_safety = torch.log(1 - self._actor_critic.binary_critic.assess_safety(obs, action))
-        if log_safety.min() < -1e6:
+        loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
+
+        log_safety = torch.log(1 - self._actor_critic.binary_critic.assess_safety(obs, action)).clamp_min(-1e3)
+        final_loss = (loss - log_safety).mean()
+
+        if log_safety.min() <= -1e3:
+            print(f' unmodified loss is {loss}, of shape {loss.shape}')
+            print(f' unmodified mean_loss is {loss.mean()} of shape {loss.mean().shape}')
             print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n')
-        return (self._alpha * log_prob - torch.min(q1_value_r, q2_value_r) - log_safety).mean()
+            print(f' log safety is {log_safety}, of shape {log_safety.shape}')
+            print(f' final loss is {final_loss} of shape {final_loss.shape}')
+
+        return final_loss
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""
@@ -198,7 +212,12 @@ class SACBinaryCritic(SAC):
         # Update actor and reward critic like sac.
         super()._update()
         # Check to see if we should update the binary critic
+        # 1) Swap how_to_act from 'first_safe' to the corresponding config
+        if self._update_count == self._cfgs.algo_cfgs.bc_start:
+            self._actor_critic.action_criterion = self._cfgs.model_cfgs.action_criterion
+
         if self._update_count >= self._cfgs.algo_cfgs.bc_start and self._update_count % self._cfgs.algo_cfgs.bc_delay == 0:
+            # 2) Update binary critic
             data = self._buf.get()
             obs, act, next_obs, cost = (
                 data['obs'],

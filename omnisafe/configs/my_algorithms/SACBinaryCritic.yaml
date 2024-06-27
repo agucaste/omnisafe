@@ -83,7 +83,7 @@ defaults:
     # Binary critic thingies
     # ----------------------
     # start training the binary critic after these many steps
-    bc_start: 100_000
+    bc_start: 0  # 200_000
     # train binary_critic every these many steps
     bc_delay: 2000
     # the maximum number of epochs for binary critic update
@@ -117,7 +117,7 @@ defaults:
     # Maximum resampling for binary critic network
     max_resamples: 100
     # Action criterion: either take 'safest' action or 'first_safe'
-    action_criterion: first_safe
+    action_criterion: safest
     # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
     operator: inequality
     # Configuration of Actor network
