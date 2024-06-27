@@ -175,7 +175,8 @@ class SACBinaryCritic(SAC):
         log_prob = self._actor_critic.actor.log_prob(action)
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         log_safety = torch.log(1 - self._actor_critic.binary_critic.assess_safety(obs, action))
-        # print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n')
+        if log_safety.min() < -1e6:
+            print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n')
         return (self._alpha * log_prob - torch.min(q1_value_r, q2_value_r) - log_safety).mean()
 
     def _log_when_not_update(self) -> None:
@@ -245,6 +246,13 @@ class SACBinaryCritic(SAC):
             epoch += 1
         self._logger.store(
             {'Classifier/per_step_epochs': epoch}
+        )
+        self._logger.store(
+            {
+                'Classifier/Accuracy': metrics['accuracy'].item(),
+                'Classifier/Power': metrics['power'].item(),
+                'Classifier/Miss_rate': metrics['miss_rate'].item()
+            },
         )
         return
 
