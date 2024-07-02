@@ -180,5 +180,40 @@ class BinaryCritic(Critic):
         # threshold at 0.5
         return safety_index.round()
 
+    @staticmethod
+    def classifier_metrics(values: torch.Tensor, labels: torch.Tensor) -> dict[str, torch.Tensor]:
+        """
 
+        Args:
+            values (Tensor):
+            labels ():
+
+        Returns:
+            the classifier metrics, a dictionary containing:
+            - miss_rate
+            - power
+            -accuracy
+        """
+        values = values.round()
+        labels = labels.round()
+
+        # Get metrics
+        population = values.shape[0]
+        positive_population = torch.count_nonzero(labels == 1)
+
+        accuracy = torch.count_nonzero(values == labels) / population  # (TP + TN)/(P + N)
+        power = torch.count_nonzero(torch.logical_and(values == 1, labels == 1)) / positive_population
+        miss_rate = torch.count_nonzero(torch.logical_and(values == 0, labels == 1)) / positive_population
+
+        # if positive_population == 0:
+        #     # No 'unsafe' labels.
+        #     power = torch.Tensor([1])
+        #     miss_rate = torch.Tensor([1])
+
+        metrics = {
+            'accuracy': accuracy,
+            'power': power,
+            'miss_rate': miss_rate
+        }
+        return metrics
 

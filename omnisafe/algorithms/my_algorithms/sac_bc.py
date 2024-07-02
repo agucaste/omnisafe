@@ -140,7 +140,7 @@ class SACBinaryCritic(SAC):
         self._logger.register_key('Classifier/Accuracy')
         self._logger.register_key('Classifier/Power')
         self._logger.register_key('Classifier/Miss_rate')
-        self._logger.register_key('Classifier/per_step_epochs')
+        # self._logger.register_key('Classifier/per_step_epochs')
 
         # TODO: Move this to another place! here it's ugly.
         self._actor_critic.initialize_binary_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
@@ -181,17 +181,14 @@ class SACBinaryCritic(SAC):
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
 
-        log_safety = torch.log(1 - self._actor_critic.binary_critic.assess_safety(obs, action)).clamp_min(-1e3)
-        final_loss = (loss - log_safety).mean()
-
-        if log_safety.min() <= -1e3:
-            print(f' unmodified loss is {loss}, of shape {loss.shape}')
-            print(f' unmodified mean_loss is {loss.mean()} of shape {loss.mean().shape}')
-            print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n')
-            print(f' log safety is {log_safety}, of shape {log_safety.shape}')
-            print(f' final loss is {final_loss} of shape {final_loss.shape}')
-
-        return final_loss
+        log_safety = torch.log(
+            1 - self._actor_critic.binary_critic.assess_safety(obs, action).clamp_max(
+                self._cfgs.algo_cfgs.clamp_unsafe_labels)
+        )
+        # if log_safety.min() <= -1e3:
+        #     print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n\t-mean: {log_safety.mean()}\n')
+        #     print(f'standard loss:\n\t-max {loss.max()}\n\t-min: {loss.min()}\n\t-mean: {loss.mean()}')
+        return (loss - log_safety).mean()
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""
@@ -199,6 +196,12 @@ class SACBinaryCritic(SAC):
         self._logger.store(
             {
                 'Value/alpha': self._alpha,
+                'Loss/Loss_binary_critic': 0.0,
+                'Value/binary_critic': 0.0,
+                'Classifier/Accuracy': 0.0,
+                'Classifier/Power': 0.0,
+                'Classifier/Miss_rate': 0.0,
+                # 'Classifier/per_step_epochs': 0.0,
             },
         )
         if self._cfgs.algo_cfgs.auto_alpha:
@@ -209,70 +212,57 @@ class SACBinaryCritic(SAC):
             )
 
     def _update(self):
-        # Update actor and reward critic like sac.
-        super()._update()
-        # Check to see if we should update the binary critic
-        # 1) Swap how_to_act from 'first_safe' to the corresponding config
+        # Update actor and reward critic like SAC (Taken from ddpg)
+        # 1. Get the mini-batch data from buffer.
+        # 2. Get the loss of network.
+        # 3. Update the network by loss.
+        # 4. Repeat steps 2, 3 until the ``update_iters`` times.
+
+        # When training of binary critic starts, swap action_criterion for 'safest'
         if self._update_count == self._cfgs.algo_cfgs.bc_start:
             self._actor_critic.action_criterion = self._cfgs.model_cfgs.action_criterion
+            print(f"Swapping to 'safest' action criterion")
 
-        if self._update_count >= self._cfgs.algo_cfgs.bc_start and self._update_count % self._cfgs.algo_cfgs.bc_delay == 0:
-            # 2) Update binary critic
-            data = self._buf.get()
-            obs, act, next_obs, cost = (
+        for _ in range(self._cfgs.algo_cfgs.update_iters):
+            data = self._buf.sample_batch()
+            self._update_count += 1
+            obs, act, reward, cost, done, next_obs = (
                 data['obs'],
                 data['act'],
+                data['reward'],
+                data['cost'],
+                data['done'],
                 data['next_obs'],
-                data['cost']
             )
-            self._update_binary_critic_until_consistency(obs, act, cost, next_obs)
-            "05/28/24: Compute accuracy over dataset."
-            metrics = self._actor_critic.classifier_metrics(obs, act, next_obs, cost,
-                                                            operator=self._cfgs.model_cfgs.operator)
-            self._logger.store(
-                {
-                    'Classifier/Accuracy': metrics['accuracy'].item(),
-                    'Classifier/Power': metrics['power'].item(),
-                    'Classifier/Miss_rate': metrics['miss_rate'].item()
-                },
-            )
+
+            self._update_reward_critic(obs, act, reward, done, next_obs)
+            if self._cfgs.algo_cfgs.use_cost:
+                self._update_cost_critic(obs, act, cost, done, next_obs)
+
+            if self._update_count >= self._cfgs.algo_cfgs.bc_start:
+                if self._update_count % self._cfgs.algo_cfgs.bc_delay == 0:
+                    self._update_binary_critic_until_consistency(obs, act, cost, next_obs)
+
+            if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
+                self._update_actor(obs)
+                self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak)
+        return
 
     def _update_binary_critic_until_consistency(self, obs, act, cost, next_obs):
         """Updates the binary critic until self-consistency.
         Copied from method from trpo_penalty_binary_critic
         """
-
-        dataloader = DataLoader(
-            dataset=TensorDataset(obs, act, next_obs, cost),
-            batch_size=self._cfgs.algo_cfgs.batch_size,
-            shuffle=True,
-        )
         self_consistent = False
-        epoch = 0
-        for epoch in track(range(self._cfgs.algo_cfgs.binary_critic_max_epochs),
-                           description='Updating binary critic...'):
-            # Run sgd on the dataset
-            for o, a, next_o, c in dataloader:
-                self._update_binary_critic(o, a, next_o, c)
-            metrics = self._actor_critic.classifier_metrics(obs, act, next_obs, cost,
-                                                            operator=self._cfgs.model_cfgs.operator)
-            miss_rate = metrics['miss_rate'].item()
-            if miss_rate < 1e-2:
-                # classifier is self-consistent accross unsafe samples.
-                self_consistent = True
-                # print(f'Achieved self_consistency rate of {1-miss_rate:.4f} over unsafe samples at epoch={epoch}')
-                break
-            epoch += 1
-        self._logger.store(
-            {'Classifier/per_step_epochs': epoch}
-        )
-        self._logger.store(
-            {
-                'Classifier/Accuracy': metrics['accuracy'].item(),
-                'Classifier/Power': metrics['power'].item(),
-                'Classifier/Miss_rate': metrics['miss_rate'].item()
-            },
-        )
+        # for epoch in track(range(self._cfgs.algo_cfgs.binary_critic_max_epochs),
+        #                    description='Updating binary critic...'):
+        for epoch in range(self._cfgs.algo_cfgs.binary_critic_max_epochs):
+            self._update_binary_critic(obs, act, next_obs, cost)
+            # metrics = self._actor_critic.classifier_metrics(obs, act, next_obs, cost,
+            #                                                 operator=self._cfgs.model_cfgs.operator)
+            # miss_rate = metrics['miss_rate'].item()
+            # if miss_rate <= self._cfgs.algo_cfgs.binary_critic_max_miss_rate:
+            #     self_consistent = True
+            #     break
         return
 
     def _update_binary_critic(self, obs: torch.Tensor, act: torch.Tensor,
@@ -299,31 +289,35 @@ class SACBinaryCritic(SAC):
 
         self._actor_critic.binary_critic_optimizer.zero_grad()
         # Im adding this
-        value_c = self._actor_critic.binary_critic.assess_safety(obs, act)
+        values = self._actor_critic.binary_critic.assess_safety(obs, act)
 
         with torch.no_grad():
             next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
-            target_value_c = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
-        target_value_c = torch.maximum(target_value_c, cost).clamp_max(1)
+            soft_labels = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
+        soft_labels = torch.maximum(soft_labels, cost).clamp_max(1)
 
         # Update 05/15/24 : filter towards inequality depending on model cfgs.
         if self._cfgs.model_cfgs.operator == 'inequality':
             # Filter dataset (04/30/24):
-            filtering_mask = torch.logical_or(target_value_c >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
-                                              torch.logical_and(value_c < 0.5, target_value_c < 0.5)  # safe: 0 <-- 0
+            filtering_mask = torch.logical_or(soft_labels >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
+                                              torch.logical_and(values < 0.5, soft_labels < 0.5)  # safe: 0 <-- 0
                                               )
-            value_c_filter = value_c[filtering_mask]
-            target_value_c_filter = target_value_c[filtering_mask]
+            values = values[filtering_mask]
+            soft_labels = soft_labels[filtering_mask]
         elif self._cfgs.model_cfgs.operator == 'equality':
-            value_c_filter = value_c
-            target_value_c_filter = target_value_c
+            pass
         else:
             raise (ValueError, f'operator should be "equality" or "inequality", not {self._cfgs.model_cfgs.operator}')
-        loss = nn.functional.binary_cross_entropy(value_c_filter, target_value_c_filter)
-
+        loss = nn.functional.binary_cross_entropy(values, soft_labels)
         if self._cfgs.algo_cfgs.use_critic_norm:
             for param in self._actor_critic.binary_critic.parameters():
                 loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
+
+        # print(f'Binary critic loss is {loss:.4f}')
+        if torch.isnan(loss):
+            print(f'Loss is NaN')
+            for i, v in enumerate(zip(values, soft_labels)):
+                print(f'ix = {i}\nlhs: {v[0]}\trhs: {v[1]}\n')
 
         loss.backward()
 
@@ -336,7 +330,18 @@ class SACBinaryCritic(SAC):
         self._actor_critic.binary_critic_optimizer.step()
 
         self._logger.store({'Loss/Loss_binary_critic': loss.mean().item(),
-                            'Value/binary_critic': value_c_filter.mean().item(),
+                            'Value/binary_critic': values.mean().item(),
                             },
                            )
+
+        # Get classifier metrics?
+        metrics = self._actor_critic.binary_critic.classifier_metrics(values, soft_labels)
+        self._logger.store(
+            # {'Classifier/per_step_epochs': epoch,
+            {
+                'Classifier/Accuracy': metrics['accuracy'].item(),
+                'Classifier/Power': metrics['power'].item(),
+                'Classifier/Miss_rate': metrics['miss_rate'].item()
+            },
+        )
 

@@ -186,15 +186,6 @@ class TRPOBinaryCritic(TRPO):
             accepted.
         """
         data = self._buf.get()
-        # obs, act, logp, target_value_r, target_value_c, adv_r, adv_c = (
-        #     data['obs'],
-        #     data['act'],
-        #     data['logp'],
-        #     data['target_value_r'],
-        #     data['target_value_c'],
-        #     data['adv_r'],
-        #     data['adv_c'],
-        # )
         obs, act, logp, target_value_r, target_value_c, adv_r, adv_c, next_obs, cost = (
             data['obs'],
             data['act'],

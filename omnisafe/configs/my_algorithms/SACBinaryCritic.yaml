@@ -78,19 +78,20 @@ defaults:
     auto_alpha: False
     # use cost
     use_cost: False
-
     # ----------------------
     # Binary critic thingies
     # ----------------------
     # start training the binary critic after these many steps
-    bc_start: 0  # 200_000
+    bc_start: 1000  # 200_000
     # train binary_critic every these many steps
-    bc_delay: 2000
+    bc_delay: 1
     # the maximum number of epochs for binary critic update
-    binary_critic_max_epochs: 100
-    # Whether to train binary critic until self-consistency or run mini-batch sgd for 'update_iters'
-    check_self_consistency: True
+    binary_critic_max_epochs: 1  # 100
+    # acceptable miss_rate (for training until fitting)
+#    binary_critic_max_miss_rate: 0.01  # 1%
 
+    # clip unsafe labels to this value when updating actor
+    clamp_unsafe_labels: 0.99999
   # logger configurations
   logger_cfgs:
     # use wandb for logging
