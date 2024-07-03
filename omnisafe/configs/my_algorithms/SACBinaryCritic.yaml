@@ -82,7 +82,7 @@ defaults:
     # Binary critic thingies
     # ----------------------
     # start training the binary critic after these many steps
-    bc_start: 10  # 200_000
+    bc_start: 400_000
     # train binary_critic every these many steps
     bc_delay: 1
     # the maximum number of epochs for binary critic update
