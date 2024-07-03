@@ -181,10 +181,11 @@ class SACBinaryCritic(SAC):
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
 
-        log_safety = torch.log(
-            1 - self._actor_critic.binary_critic.assess_safety(obs, action).clamp_max(
-                self._cfgs.algo_cfgs.clamp_unsafe_labels)
-        )
+        log_safety = self._actor_critic.binary_critic.log_assess_safety(obs, action)
+        # log_safety = torch.log(
+        #     1 - self._actor_critic.binary_critic.assess_safety(obs, action).clamp_max(
+        #         self._cfgs.algo_cfgs.clamp_unsafe_labels)
+        # )
         # if log_safety.min() <= -1e3:
         #     print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n\t-mean: {log_safety.mean()}\n')
         #     print(f'standard loss:\n\t-max {loss.max()}\n\t-min: {loss.min()}\n\t-mean: {loss.mean()}')

@@ -102,7 +102,7 @@ class BinaryCritic(Critic):
                     [hidden_sizes[0] + self._act_dim] + hidden_sizes[1:] + [1],
                     activation=activation,
                     weight_initialization_mode=weight_initialization_mode,
-                    output_activation='sigmoid'
+                    # output_activation='sigmoid'
                 )
                 critic = nn.Sequential(obs_encoder, net)
             else:
@@ -110,7 +110,7 @@ class BinaryCritic(Critic):
                     [self._obs_dim + self._act_dim, *hidden_sizes, 1],
                     activation=activation,
                     weight_initialization_mode=weight_initialization_mode,
-                    output_activation='sigmoid'
+                    # output_activation='sigmoid'
                 )
                 critic = nn.Sequential(net)
             self.net_lst.append(critic)
@@ -162,8 +162,26 @@ class BinaryCritic(Critic):
         """
         # print(f'Observation has shape {obs.shape}\nAction has shape {a.shape}')
         # print(f'obs is {obs} with shape {obs.shape}\n a is {a} with shape {a.shape}')
-        safety_index = torch.stack(self.forward(obs=obs, act=a)).mean(dim=0)
+        # safety_index = torch.stack(self.forward(obs=obs, act=a)).mean(dim=0)
+        safety_index = torch.sigmoid(torch.stack(self.forward(obs=obs, act=a))).mean(dim=0, keepdim=True)
         return safety_index
+
+    def log_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        """
+        07/03/24
+        Computes
+            log[1 - Sigmoid( x(s,a) )], where x(s,a) is the return of the forward method. Uses LogSigmoid function
+            for numerical stability.
+            log(1 - S(x(s,a))) = log(e^{-x(s,a)}/(1+e^{-x(s,a)}) = -x(s,a) + logSigmoid(x(s,a))
+        Args:
+            obs ():
+            a ():
+
+        Returns:
+        """
+        x = torch.stack(self.forward(obs=obs, act=a))
+        log_safety = -x + nn.functional.logsigmoid(x)
+        return log_safety.mean(dim=0)
 
     def get_safety_label(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
         """
