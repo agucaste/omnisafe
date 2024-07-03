@@ -409,7 +409,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                            act: torch.Tensor,
                            next_obs: torch.Tensor,
                            cost,
-                           operator:str) -> dict[str, torch.Tensor]:
+                           operator: str) -> dict[str, torch.Tensor]:
         """
         Gets the metrics of the binary classifier, for a given {(o, a, next_o, cost)} dataset.
         Args:
