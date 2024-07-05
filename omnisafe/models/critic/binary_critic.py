@@ -145,7 +145,7 @@ class BinaryCritic(Critic):
                 res.append(torch.squeeze(critic(torch.cat([obs, act], dim=-1)), -1))
         return res
 
-    def assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    def assess_safety(self, obs: torch.Tensor, a: torch.Tensor, average: bool = True) -> torch.Tensor:
         """
         Given an observation, assesses its safety from "safe" (0) to "unsafe" (1).
         Returns a continuous value in [0,1]
@@ -156,6 +156,7 @@ class BinaryCritic(Critic):
         Args:
             obs (torch.tensor): The observation from environments.
             a (torch.tensor): The candidate action by the actor.
+            average (bool):
 
         Returns:
             safety_index (torch.tensor): a value in [0, 1], denoting how unsafe the action is.
@@ -163,7 +164,10 @@ class BinaryCritic(Critic):
         # print(f'Observation has shape {obs.shape}\nAction has shape {a.shape}')
         # print(f'obs is {obs} with shape {obs.shape}\n a is {a} with shape {a.shape}')
         # safety_index = torch.stack(self.forward(obs=obs, act=a)).mean(dim=0)
-        safety_index = torch.sigmoid(torch.stack(self.forward(obs=obs, act=a))).mean(dim=0, keepdim=True)
+        safety_index = torch.sigmoid(torch.stack(self.forward(obs=obs, act=a)))
+        # print(f'safety_index has shape {safety_index.shape}\nvalues: {safety_index}')
+        if average:
+            safety_index = safety_index.mean(dim=0)  # , keepdim=True)
         return safety_index
 
     def log_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:

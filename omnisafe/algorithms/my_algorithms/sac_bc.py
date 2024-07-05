@@ -17,8 +17,8 @@
 import torch
 from torch import nn, optim
 from torch.nn.utils.clip_grad import clip_grad_norm_
-from torch.utils.data import DataLoader, TensorDataset
-from rich.progress import track
+from torch.nn.functional import binary_cross_entropy
+
 
 from typing import Any
 
@@ -182,6 +182,11 @@ class SACBinaryCritic(SAC):
         loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
 
         log_safety = self._actor_critic.binary_critic.log_assess_safety(obs, action)
+        # Only penalize unsafe labels
+        labels = self._actor_critic.binary_critic.get_safety_label(obs, action)
+        # print(f'Updating loss_pi:\nUnsafe labels: {torch.count_nonzero(labels)} out of {labels.shape}\n')
+        log_safety = torch.where(labels == 1, log_safety, 0.0)
+
         # log_safety = torch.log(
         #     1 - self._actor_critic.binary_critic.assess_safety(obs, action).clamp_max(
         #         self._cfgs.algo_cfgs.clamp_unsafe_labels)
@@ -291,25 +296,21 @@ class SACBinaryCritic(SAC):
         self._actor_critic.binary_critic_optimizer.zero_grad()
         # Im adding this
         values = self._actor_critic.binary_critic.assess_safety(obs, act)
+        # print(f'values is {values} of shape {values.shape}')
 
         with torch.no_grad():
             next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
             soft_labels = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
         soft_labels = torch.maximum(soft_labels, cost).clamp_max(1)
+        # print(f'soft_labels are {soft_labels} of shape {soft_labels.shape}')
 
-        # Update 05/15/24 : filter towards inequality depending on model cfgs.
-        if self._cfgs.model_cfgs.operator == 'inequality':
-            # Filter dataset (04/30/24):
-            filtering_mask = torch.logical_or(soft_labels >= .5,  # Use 'unsafe labels' (0 <-- 1 ; 1 <-- 1)
-                                              torch.logical_and(values < 0.5, soft_labels < 0.5)  # safe: 0 <-- 0
-                                              )
-            values = values[filtering_mask]
-            soft_labels = soft_labels[filtering_mask]
-        elif self._cfgs.model_cfgs.operator == 'equality':
-            pass
-        else:
-            raise (ValueError, f'operator should be "equality" or "inequality", not {self._cfgs.model_cfgs.operator}')
-        loss = nn.functional.binary_cross_entropy(values, soft_labels)
+        # 07/05/24
+        # Regress each binary critic towards the consensus label.
+        FBCE = FilteredBCELoss(operator=self._cfgs.model_cfgs.operator)
+        loss = sum(
+            FBCE(pred, soft_labels) for pred in self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
+        )
+
         if self._cfgs.algo_cfgs.use_critic_norm:
             for param in self._actor_critic.binary_critic.parameters():
                 loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
@@ -346,3 +347,23 @@ class SACBinaryCritic(SAC):
             },
         )
 
+
+class FilteredBCELoss(nn.Module):
+    """
+    A filtered version of the BCELoss. Given predictions p_i and labels y_i,
+    Filters out the transitions that satisfy p_i >= 1/2 and y_i <= 1/2
+
+    """
+    def __init__(self, operator: str, threshold=0.5):
+        super().__init__()
+        self.operator = operator
+        self.threshold = threshold
+
+    def forward(self, predictions, targets):
+        if self.operator == 'inequality':
+            # 'mask' is the transitions that are being considered.
+            mask = ~torch.logical_and(predictions >= self.threshold, targets <= self.threshold)
+            loss = binary_cross_entropy(predictions[mask], targets[mask])
+        else:
+            loss = binary_cross_entropy(predictions, targets)
+        return loss

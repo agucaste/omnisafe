@@ -191,7 +191,8 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 # values = self.binary_critic.forward(o, a)  # one per binary_critic
                 values = self.binary_critic.assess_safety(o, a)
                 # print(f' values are {values}')
-                loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
+                # loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
+                loss = nn.functional.binary_cross_entropy(values, y)
                 # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.binary_critic.parameters():
@@ -279,7 +280,8 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 # Compute bce loss
                 # values = self.binary_critic.forward(o, a)  # one per binary_critic
                 values = self.binary_critic.assess_safety(o, a)
-                loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
+                loss = nn.functional.binary_cross_entropy(values, y)
+                # loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
                 # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.binary_critic.parameters():

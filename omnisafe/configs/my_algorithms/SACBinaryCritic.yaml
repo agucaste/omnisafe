@@ -82,16 +82,11 @@ defaults:
     # Binary critic thingies
     # ----------------------
     # start training the binary critic after these many steps
-    bc_start: 400_000
+    bc_start: 200_000
     # train binary_critic every these many steps
     bc_delay: 1
     # the maximum number of epochs for binary critic update
     binary_critic_max_epochs: 1  # 100
-    # acceptable miss_rate (for training until fitting)
-#    binary_critic_max_miss_rate: 0.01  # 1%
-
-    # clip unsafe labels to this value when updating actor
-    clamp_unsafe_labels: 0.99999
   # logger configurations
   logger_cfgs:
     # use wandb for logging
@@ -141,7 +136,7 @@ defaults:
       lr: 0.0003
     # The binary critic
     binary_critic:
-      num_critics: 1
+      num_critics: 3
       hidden_sizes: [ 256, 256 ]
       activation: tanh
       lr: 0.001
