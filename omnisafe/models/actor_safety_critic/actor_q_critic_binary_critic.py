@@ -113,7 +113,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         # Check whether to act in a 'safe' or 'most_uncertain' manner.
         self.how_to_act = 'safe'
         # self.how_to_act = model_cfgs.binary_critic.how_to_act
-        self.setup_step_method()
+        # self.setup_step_method()
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
@@ -351,6 +351,24 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         act = np.random.uniform(low=self._low, high=self._high, size=(samples, self._act_dim)).astype(np.float32)
         act = torch.from_numpy(act)
         return act
+
+    def step(self, obs: torch.Tensor, deterministic: bool = False) -> tuple[torch.Tensor, ...]:
+        """Choose the action based on the observation. used in rollout without gradient.
+
+        Args:
+            obs (torch.tensor): The observation from environments.
+            deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
+
+        Returns:
+            The deterministic action if deterministic is True.
+            Action with noise other wise.
+        """
+        with torch.no_grad():
+            a = self.actor.predict(obs, deterministic=deterministic)
+            safety_val = self.binary_critic.assess_safety(obs=obs, a=a)
+            num_resamples = torch.Tensor([0.0])
+        return a, safety_val, num_resamples
+
 
     def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, criterion: Optional[str] = None,
                          mode: str = 'on_policy', ) -> tuple[torch.Tensor, ...]:
