@@ -113,7 +113,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         # Check whether to act in a 'safe' or 'most_uncertain' manner.
         self.how_to_act = 'safe'
         # self.how_to_act = model_cfgs.binary_critic.how_to_act
-        # self.setup_step_method()
+        self.setup_step_method()
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
@@ -352,22 +352,22 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         act = torch.from_numpy(act)
         return act
 
-    def step(self, obs: torch.Tensor, deterministic: bool = False) -> tuple[torch.Tensor, ...]:
-        """Choose the action based on the observation. used in rollout without gradient.
-
-        Args:
-            obs (torch.tensor): The observation from environments.
-            deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
-
-        Returns:
-            The deterministic action if deterministic is True.
-            Action with noise other wise.
-        """
-        with torch.no_grad():
-            a = self.actor.predict(obs, deterministic=deterministic)
-            safety_val = self.binary_critic.assess_safety(obs=obs, a=a)
-            num_resamples = torch.Tensor([0.0])
-        return a, safety_val, num_resamples
+    # def step(self, obs: torch.Tensor, deterministic: bool = False) -> tuple[torch.Tensor, ...]:
+    #     """Choose the action based on the observation. used in rollout without gradient.
+    #
+    #     Args:
+    #         obs (torch.tensor): The observation from environments.
+    #         deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
+    #
+    #     Returns:
+    #         The deterministic action if deterministic is True.
+    #         Action with noise other wise.
+    #     """
+    #     with torch.no_grad():
+    #         a = self.actor.predict(obs, deterministic=deterministic)
+    #         safety_val = self.binary_critic.assess_safety(obs=obs, a=a)
+    #         num_resamples = torch.Tensor([0.0])
+    #     return a, safety_val, num_resamples
 
 
     def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, criterion: Optional[str] = None,
@@ -479,18 +479,19 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         }
         return metrics
 
-    def polyak_update(self, tau: float) -> None:
+    def polyak_update(self, tau, tau_binary: float) -> None:
         """Update the target network with polyak averaging.
 
         Args:
-            tau (float): The polyak averaging factor.
+            tau (float): The polyak averaging factor (reward critic)
+            tau_bc (float): The polyak averaging factor (binary critic)
         """
         super().polyak_update(tau)
         for target_param, param in zip(
             self.target_binary_critic.parameters(),
             self.binary_critic.parameters(),
         ):
-            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+            target_param.data.copy_(tau_binary * param.data + (1 - tau_binary) * target_param.data)
 
     def setup_step_method(self):
         def pick_uncertain_action(obs: torch.Tensor, deterministic: bool = False, ) -> tuple[torch.Tensor, ...]:

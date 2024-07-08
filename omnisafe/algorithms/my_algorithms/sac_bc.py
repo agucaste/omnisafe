@@ -251,7 +251,8 @@ class SACBinaryCritic(SAC):
 
             if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
                 self._update_actor(obs)
-                self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak)
+                self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak,
+                                                 self._cfgs.algo_cfgs.polyak_binary)
         return
 
     def _update_binary_critic_until_consistency(self, obs, act, cost, next_obs):
