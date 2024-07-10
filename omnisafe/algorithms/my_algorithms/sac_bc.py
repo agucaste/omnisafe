@@ -147,7 +147,8 @@ class SACBinaryCritic(SAC):
 
         # What things to save.
         what_to_save: dict[str, Any] = {'pi': self._actor_critic.actor,
-                                        'binary_critic': self._actor_critic.binary_critic}
+                                        'binary_critic': self._actor_critic.binary_critic,
+                                        'reward_critic': self._actor_critic.reward_critic}
         if self._cfgs.algo_cfgs.obs_normalize:
             obs_normalizer = self._env.save()['obs_normalizer']
             what_to_save['obs_normalizer'] = obs_normalizer

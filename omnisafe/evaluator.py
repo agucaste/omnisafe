@@ -305,15 +305,27 @@ class Evaluator:  # pylint: disable=too-many-instance-attributes
                 self._actor.cost_critic.load_state_dict(model_params['cost_critic'])
 
             if self._cfgs['algo'].endswith('BinaryCritic'):
-                self._actor: ActorCriticBinaryCritic = ActorCriticBinaryCritic(
-                    obs_space=self._env.observation_space,
-                    act_space=self._env.action_space,
-                    model_cfgs=self._cfgs.model_cfgs,
-                    epochs=self._cfgs.train_cfgs.epochs,
-                    env=self._env
-                )
+                if not self._cfgs['algo'].startswith('SAC'):
+                    # On policy algorithm
+                    self._actor: ActorCriticBinaryCritic = ActorCriticBinaryCritic(
+                        obs_space=self._env.observation_space,
+                        act_space=self._env.action_space,
+                        model_cfgs=self._cfgs.model_cfgs,
+                        epochs=self._cfgs.train_cfgs.epochs,
+                        # env=self._env
+                    )
+                else:
+                    # SAC, off policy
+                    self._actor: ActorQCriticBinaryCritic = ActorQCriticBinaryCritic(
+                        obs_space=self._env.observation_space,
+                        act_space=self._env.action_space,
+                        model_cfgs=self._cfgs.model_cfgs,
+                        epochs=self._cfgs.train_cfgs.epochs,
+                        # env=self._env
+                    )
                 self._actor.actor.load_state_dict(model_params['pi'])
                 self._actor.binary_critic.load_state_dict(model_params['binary_critic'])
+                # self._actor.reward_critic.load_state_dict(model_params['reward_critic'])
 
     # pylint: disable-next=too-many-locals
     def load_saved(

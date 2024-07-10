@@ -183,8 +183,9 @@ class BinaryCritic(Critic):
 
         Returns:
         """
-        x = torch.stack(self.forward(obs=obs, act=a))
-        log_safety = -x + nn.functional.logsigmoid(x)
+        with torch.no_grad():
+            x = torch.stack(self.forward(obs=obs, act=a))
+            log_safety = -x + nn.functional.logsigmoid(x)
         return log_safety.mean(dim=0)
 
     def get_safety_label(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:

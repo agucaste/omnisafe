@@ -337,11 +337,10 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         TODO: currently this only works for the algorithm 'UniformBinaryCritic'
         TODO: check that it works for any type of algorithm using an actor_q_critic_bc
         """
-        print(f' obs shape is {obs.shape}')
-        obs = obs.unsqueeze(0)
+        # obs = obs.reshape(-1, obs.shape[-1])  # Ensure its of the form (B, O)
         a, *_ = self.step(obs, deterministic=deterministic)
-        print(f' action shape is {a.shape}')
-        a = a.view(self.actor._act_space.shape)
+        # print(f' action shape is {a.shape}')
+        # a = a.view(self.actor._act_space.shape)
         return a
 
     def sample_uniform_actions(self, obs: torch.Tensor) -> torch.Tensor:
@@ -395,9 +394,12 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         """
         criterion = self.action_criterion if criterion is None else criterion
 
-        batch_size = obs.shape[0]  # B
-        # Repeat the observation to feed to the actor; original obs is (B, O)
-        repeated_obs = self.repeat_obs(obs, self.binary_critic.max_resamples)  # (B*R, O)
+        # Get batch size B. observation is either (B, O), (1, O) or (O)
+        batch_size = obs.shape[0] if obs.dim() > 1 else 1
+        if obs.dim() > 1:
+            repeated_obs = self.repeat_obs(obs, self.binary_critic.max_resamples)  # (B*R, O)
+        else:
+            repeated_obs = self.repeat_obs(obs.unsqueeze(0), self.binary_critic.max_resamples)  # (R, O)
         with torch.no_grad():
             # Get the actions
             if mode == 'on_policy':
@@ -424,6 +426,10 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         a = a.view(batch_size, self.binary_critic.max_resamples, -1)  # (B, R, A)
         a = a[torch.arange(batch_size), chosen_idx]  # (B, A)
         safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
+
+        if obs.dim() == 1:
+            a = a.squeeze(0)
+            safety_val = safety_val.squeeze(0)
 
         return a, safety_val, num_resamples
 
