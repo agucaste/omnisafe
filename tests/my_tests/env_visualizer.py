@@ -6,22 +6,17 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import LineCollection
-
-import warnings
+from matplotlib.ticker import FuncFormatter
 
 from omnisafe.adapter import MyOffPolicyAdapter
-from omnisafe.algorithms.algo_wrapper import AlgoWrapper
 from omnisafe.envs.core import make
-from omnisafe.envs.wrapper import TimeLimit
-from omnisafe.algorithms import registry
 from omnisafe import Agent
-
+from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic
+from omnisafe.utils.math import discount_cumsum
 
 from typing import Dict, Tuple, Optional
 
-from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic
-from omnisafe.utils.config import get_default_kwargs_yaml
-from omnisafe.utils.math import discount_cumsum
+
 
 from rich.progress import track
 
@@ -97,7 +92,8 @@ def colored_line(x: list | np.ndarray, y: list | np.ndarray, c: list | np.ndarra
     # print(f' colors are {colors}')
 
     segments = _make_segments(x, y)
-    lc = LineCollection(segments, colors=colors, linewidths=2)
+    linewidths = 2 if 'linewidths' not in lc_kwargs.keys() else lc_kwargs['linewidths']
+    lc = LineCollection(segments, colors=colors, linewidths=linewidths)
 
     ax.add_collection(lc)
     # ax.set_xlim(xy_range)
@@ -319,26 +315,28 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]],
         Figure with ...
 
     """
-    total_eps = len(list_of_metrics)
-    assert total_eps >= num_eps
+    def plot_row(ep_metric: dict[str, np.ndarray], axs: mpl.axes.Axes, row: str, single_out: bool, **kwargs):
+        """
 
-    # Pick at random which episodes to show
-    ep_ixs = np.random.choice(range(total_eps), size=num_eps, replace=False)
+        Args:
+            ep_metric ():
+            axs ():
+            row ():
+            single_out ():
 
-    cmap = plt.get_cmap('RdBu_r')
+        Returns:
 
-    nrows, ncols = num_eps+1, 8  # one row for each episode, plus extra row for aggregate metrics
-    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols*4, nrows*3))  # , sharex=True, sharey=True)
-    for i, ep in enumerate(ep_ixs):
-        ep_metric = list_of_metrics[ep]
+        """
+
         # -----------------
         # Plot trajectories
         # -----------------
         ax = axs[i, 0]
         x, y = zip(*ep_metric.get('xy'))
-        lines = colored_line(x=x, y=y, c=np.linspace(0, 1, len(x)), ax=ax, cmap='cool')
-        plot_layout(geoms, ax)
-
+        lines = colored_line(x=x, y=y, c=np.linspace(0, 1, len(x)), ax=ax, cmap='cool', **kwargs)
+        if single_out:
+            plot_layout(geoms, ax)
+            ax.set_ylabel(rf"sum_r = {ep_metric.get('ret'):.1f}; $G_0^\gamma$ = {ep_metric.get('gamma_ret'):.1f}")
         # Get plot limits.
         r = geoms.get('circle').radius + .1
         x_lims = min(min(x), -r), max(max(x), r)
@@ -346,7 +344,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]],
 
         ax.set_xlim(x_lims)
         ax.set_ylim(y_lims)
-        ax.set_ylabel(rf"sum_r = {ep_metric.get('ret'):.1f}; $G_0^\gamma$ = {ep_metric.get('gamma_ret'):.1f}")
+
         ax.set_aspect('equal')
         if i == 0:
             ax.set_title('Trajectories')
@@ -356,10 +354,11 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]],
         # ---------------------------
         b = ep_metric.get('b')
         ax = axs[i, 1]
-        sc = b_trajectory(x, y, b, ax, cmap=cmap)
+        sc = b_trajectory(x, y, b, ax, cmap=cmap, **kwargs)
         plot_layout(geoms, ax)
         fig.colorbar(sc, ax=ax, cmap=cmap)
-        ax.set_ylabel(rf"sum_cost = {ep_metric.get('sum_cost'):.0f}")
+        if single_out:
+            ax.set_ylabel(rf"sum_cost = {ep_metric.get('sum_cost'):.0f}")
         ax.set_xlim(x_lims)
         ax.set_ylim(y_lims)
         ax.set_aspect('equal')
@@ -373,72 +372,166 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]],
 
         # Get crossovers to the unsafe region
         c = ep_metric.get('c')
-        t_cross = get_safety_crossovers(c)  # crossing times
-        for t in t_cross:
-            ax.axvline(t, c='darkgrey', linewidth=1)
+        if single_out:
+            t_cross = get_safety_crossovers(c)  # crossing times
+            for t in t_cross:
+                ax.axvline(t, c='darkgrey', linewidth=1)
 
         mkr_size = plt.rcParams['lines.markersize'] ** 2 / 2
         scat = ax.scatter(np.arange(len(b)), b, c=b, s=mkr_size, vmin=0, vmax=1, cmap=cmap)
         ax.axhline(.5, c='k', linestyle='--')
 
-
-
         if i == 0:
             ax.set_title(r'$b^\theta(s,a)$) per step')
 
         # Plot histograms
-        # b values
-        ax = axs[i, 3]
-        plot_histogram(b, ax, cmap=cmap)
-        if i == 0:
-            ax.set_title(r'Histogram of $b^\theta(s,a)$')
-
-        # penalty
         log_penalty = ep_metric.get('log_term')
-        ax = axs[i, 4]
-        plot_histogram(log_penalty, ax, color='chocolate')
-        if i == 0:
-            ax.set_title(r'Histogram of $\log(1-b^\theta(s,a))$')
+        if single_out:
+            # b values
+            ax = axs[i, 3]
+            plot_histogram(b, ax, cmap=cmap)
+            if i == 0:
+                ax.set_title(r'Histogram of $b^\theta(s,a)$')
+
+            # penalty
+            ax = axs[i, 4]
+            plot_histogram(log_penalty, ax, color='chocolate')
+            if i == 0:
+                ax.set_title(r'Histogram of $\log(1-b^\theta(s,a))$')
+
+            # errors in q-estimates
+            ax = axs[i, 7]
+
+            q_error = ep_metric.get('q_error')
+            mean_error = q_error.mean()
+
+            plot_histogram(q_error, ax, color='goldenrod', log_y=False)
+            ax.axvline(mean_error, c='darkgoldenrod', linewidth=3)
+            ax.set_ylabel(fr'mean = {mean_error:.1f}')
+            if i == 0:
+                ax.set_title(r'Histogram of $q(s,a) - G^\gamma(s,a)$')
 
         # q(s,a)
         q = ep_metric.get('qs')
         q = q.min(axis=1)
         ax = axs[i, 5]
-        scat = ax.scatter(np.arange(len(q)), q, s=mkr_size, c='k')
+        ax.scatter(np.arange(len(q)), q, c='k', s=mkr_size)
+        for t in t_cross:
+            ax.axvline(t, c='darkgrey', linewidth=1)
         if i == 0:
             ax.set_title(r'$q(s,a)$) per step')
 
         # q + penalty
         ax = axs[i, 6]
-        scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k')
+        scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
+        ax.set_yscale('symlog')
+        # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, pos: f'{y:.1e}'))
         for t in t_cross:
             ax.axvline(t, c='darkgrey', linewidth=1)
         if i == 0:
             ax.set_title(r'$q^\theta(s,a) + \log(1-b^\theta(s,a))$) per step')
+        return
 
-        # errors in q-estimates
-        ax = axs[i, 7]
 
-        q_error = ep_metric.get('q_error')
-        mean_error = q_error.mean()
+    # Main code
+    # plt.style.use('bmh')
+    total_eps = len(list_of_metrics)
+    assert total_eps >= num_eps
 
-        plot_histogram(q_error, ax, color='goldenrod', log_y=False)
-        ax.axvline(mean_error, c='darkgoldenrod', linewidth=3)
-        ax.set_ylabel(fr'mean = {mean_error:.1f}')
-        if i == 0:
-            ax.set_title(r'Histogram of $q(s,a) - G^\gamma(s,a)$')
+    # Pick at random which episodes to show
+    ep_ixs = np.random.choice(range(total_eps), size=num_eps, replace=False)
+
+    cmap = plt.get_cmap('RdBu_r')
+
+    nrows, ncols = num_eps+1, 8  # one row for each episode, plus extra row for aggregate metrics
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols*4, nrows*3))  # , sharex=True, sharey=True)
+    for i, ep in enumerate(ep_ixs):
+        ep_metric = list_of_metrics[ep]
+        plot_row(ep_metric=ep_metric, row=i, axs=axs, single_out=True)
+
 
     # Plot aggregate metrics
     i += 1
-    ax = axs[i, 2]
-    for ep_metric in list_of_metrics:
+    mkr_size = plt.rcParams['lines.markersize'] ** 2 / 16
+    linewidths = .3
+
+    ax = axs[i, 0]
+    plot_layout(geoms, ax)
+    ax = axs[i, 1]
+    plot_layout(geoms, ax)
+
+    for n, ep_metric in enumerate(list_of_metrics):
+        ax = axs[i, 0]
+        x, y = zip(*ep_metric.get('xy'))
+        # Only add the colorbar for the last element
+        last_ep = n == len(list_of_metrics) - 1
+        lines = colored_line(x=x, y=y, c=np.linspace(0, 1, len(x)), ax=ax,
+                             cmap='cool', linewidths=linewidths, add_colorbar=last_ep)
+        if last_ep:
+            plot_layout(geoms, ax)
+            # ax.set_ylabel(rf"sum_r = {ep_metric.get('ret'):.1f}; $G_0^\gamma$ = {ep_metric.get('gamma_ret'):.1f}")
+            # Get plot limits.
+            r = geoms.get('circle').radius + .1
+            x_lims = min(min(x), -r), max(max(x), r)
+            y_lims = min(min(y), -r), max(max(y), r)
+
+            ax.set_xlim(x_lims)
+            ax.set_ylim(y_lims)
+            ax.set_aspect('equal')
+
         b = ep_metric.get('b')
-        mkr_size = plt.rcParams['lines.markersize'] ** 2 / 16
+        ax = axs[i, 1]
+        sc = b_trajectory(x, y, b, ax, cmap=cmap, s=mkr_size/2)
+        if last_ep:
+            plot_layout(geoms, ax)
+            fig.colorbar(sc, ax=ax, cmap=cmap)
+            ax.set_xlim(x_lims)
+            ax.set_ylim(y_lims)
+            ax.set_aspect('equal')
+
+        ax = axs[i, 2]
+
         scat = ax.scatter(np.arange(len(b)), b, c=b, s=mkr_size, vmin=0, vmax=1, cmap=cmap)
-        # lines = colored_line(x=np.arange(len(b)), y=b, c=b, ax=ax, cmap=cmap, add_colorbar=False)
-    ax.axhline(.5, c='k', linestyle='--')
+        ax.axhline(.5, c='k', linestyle='--')
+        # q(s,a)
+        q = ep_metric.get('qs')
+        q = q.min(axis=1)
+        ax = axs[i, 5]
+        ax.scatter(np.arange(len(q)), q, c='k', s=mkr_size)
+        if i == 0:
+            ax.set_title(r'$q(s,a)$) per step')
+
+        # q + penalty
+        log_penalty = ep_metric.get('log_term')
+        ax = axs[i, 6]
+        scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
+        if i == 0:
+            ax.set_title(r'$q^\theta(s,a) + \log(1-b^\theta(s,a))$) per step')
 
 
+    # fig_height = fig.get_size_inches()[1]
+    # divider_y = fig_height / 4
+    # divider_y = 2 / fig_height  # Adjust this value to match the subplot arrangement
+    # Add the horizontal line
+    # fig.add_artist(plt.Line2D((0, 1), (divider_y, divider_y), color='black', linewidth=2))
+    # Get the aggregate data for the histogram plots
+    hist_keys = ['b', 'log_term', 'q_error']
+    agg = {k: np.concatenate([ep.get(k) for ep in list_of_metrics]) for k in hist_keys
+           }
+
+    # b values
+    ax = axs[i, 3]
+    plot_histogram(agg.get('b'), ax, cmap=cmap)
+    ax.axvline(.5, c='k', linestyle='--')
+    # penalty
+    ax = axs[i, 4]
+    plot_histogram(agg.get('log_term'), ax, color='chocolate')
+    # errors in q-estimates
+    ax = axs[i, 7]
+    mean_error = agg.get('q_error').mean()
+    plot_histogram(agg.get('q_error'), ax, color='goldenrod', log_y=False)
+    ax.axvline(mean_error, c='darkgoldenrod', linewidth=3)
+    ax.set_ylabel(fr'mean = {mean_error:.1f}')
     return fig
 
 
@@ -497,17 +590,17 @@ geoms = env._env.task._geoms
 
 
 
-custom_cfgs = dict(
-    seed=13,
-    model_cfgs=dict(
-        binary_critic=dict(axiomatic_data=dict(epochs=1), init_samples=10)
-    ),
-    logger_cfgs=dict(use_wandb=False)
-)
-algo = Agent(ALGO, ENV_ID, custom_cfgs=custom_cfgs)
-actor_critic = algo.agent._actor_critic
-env = algo.agent._env
-print(f'type of env is {type(env)}')
+# custom_cfgs = dict(
+#     seed=13,
+#     model_cfgs=dict(
+#         binary_critic=dict(axiomatic_data=dict(epochs=1), init_samples=10)
+#     ),
+#     logger_cfgs=dict(use_wandb=False)
+# )
+# algo = Agent(ALGO, ENV_ID, custom_cfgs=custom_cfgs)
+# actor_critic = algo.agent._actor_critic
+# env = algo.agent._env
+# print(f'type of env is {type(env)}')
 
 
 
@@ -524,44 +617,73 @@ print(f'type of env is {type(env)}')
 # plt.tight_layout()
 # plt.show()
 
+BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/SACBinaryCritic-{SafetyPointCircle1-v0}/'
+#  seed-000-2024-07-08-11-14-55'
+
+
+def path_to_experiments(base_dir: str = BASE_DIR, sub_string: str | None = None) -> list[str]:
+    """
+    Given a base directory, finds all the directories inside it that contain a given sub string.
+    Args:
+        base_dir (str): The base experiment directory
+        sub_string (optional str): The string that the sub-folders should contain, e.g. '2024-07-10-17'.
+
+    Returns:
+        A list of paths to the experiments. If no sub_string is provided, returns the base directory.
+    """
+    if sub_string is None:
+        # base_dir should point to the experiment, check that its last digit is a number
+        assert base_dir[-1].isdigit()
+        return [base_dir]
+    else:
+        # Find all the sub-folders that match the sub-string
+        dirs = []
+        scan_dir = os.scandir(base_dir)
+        for item in scan_dir:
+            if item.is_dir() and sub_string in item.name:
+                dirs.append(item.path)
+    return dirs
+
 
 if __name__ == '__main__':
     import os
     from omnisafe.evaluator import Evaluator
 
-    LOG_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/SACBinaryCritic-{SafetyPointCircle1-v0}/seed-000-2024-07-08-11-14-55'
+    paths = path_to_experiments(BASE_DIR, '07-10-17-23')
+
     # seed-000-2024-07-05-17-45-27'
 
+    for experiment_path in paths:
+        print(f'Opening experiment in {experiment_path}')
+        evaluator = Evaluator(render_mode='rgb_array')
+        scan_dir = os.scandir(os.path.join(experiment_path, 'torch_save'))
+        for item in scan_dir:
+            if item.is_file() and item.name.split('.')[-1] == 'pt':
+                evaluator.load_saved(
+                    save_dir=experiment_path,
+                    model_name=item.name,
+                    camera_name='track',
+                    width=256,
+                    height=256,
+                )
+                env = evaluator._env
+                # base_env = unwrap_env(env)
+                # base_env.env._max_episode_steps = 1000
+                # env = TimeLimit(env, time_limit=1000, device=torch.device('cpu'))
 
-    evaluator = Evaluator(render_mode='rgb_array')
-    scan_dir = os.scandir(os.path.join(LOG_DIR, 'torch_save'))
-    for item in scan_dir:
-        if item.is_file() and item.name.split('.')[-1] == 'pt':
-            evaluator.load_saved(
-                save_dir=LOG_DIR,
-                model_name=item.name,
-                camera_name='track',
-                width=256,
-                height=256,
-            )
-            env = evaluator._env
-            # base_env = unwrap_env(env)
-            # base_env.env._max_episode_steps = 1000
-            # env = TimeLimit(env, time_limit=1000, device=torch.device('cpu'))
+                actor_critic = evaluator._actor
+                gamma = evaluator._cfgs.algo_cfgs.gamma
 
-            actor_critic = evaluator._actor
-            gamma = evaluator._cfgs.algo_cfgs.gamma
+                episodes = 50
+                metrics = eval_metrics(env, episodes, actor_critic, gamma)
+                fig = plot_all_metrics(metrics)
 
-            episodes = 100
-            metrics = eval_metrics(env, episodes, actor_critic, gamma)
-            fig = plot_all_metrics(metrics)
+                save_dir = os.path.join(evaluator._save_dir, 'eval_metrics/')
+                os.makedirs(save_dir, exist_ok=True)
+                plt.tight_layout()
+                plt.savefig(save_dir + evaluator._model_name.split('.')[0] + '.png', dpi=200)
+                plt.close()
+                # evaluator.render(num_episodes=1)
+                # evaluator.evaluate(num_episodes=1)
 
-            save_dir = os.path.join(evaluator._save_dir, 'eval_metrics/')
-            os.makedirs(save_dir, exist_ok=True)
-            plt.tight_layout()
-            plt.savefig(save_dir + evaluator._model_name.split('.')[0] + '.png', dpi=200)
-
-            # evaluator.render(num_episodes=1)
-            # evaluator.evaluate(num_episodes=1)
-
-    scan_dir.close()
+        scan_dir.close()

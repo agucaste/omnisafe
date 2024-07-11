@@ -58,10 +58,10 @@ class SACBinaryCritic(SAC):
             epochs=self._epochs,
         ).to(self._device)
 
-        # Swap action_criterion to 'first_safe'
-        print(f"Initializing actor critic's action criterion as 'first_safe', "
-              f"to be switched to {self._actor_critic.action_criterion}")
-        self._actor_critic.action_criterion = 'first_safe'
+        # # Swap action_criterion to 'first_safe'
+        # print(f"Initializing actor critic's action criterion as 'first_safe', "
+        #       f"to be switched to {self._actor_critic.action_criterion}")
+        # self._actor_critic.action_criterion = 'first_safe'
 
     def _init_env(self) -> None:
         """Initialize the environment.
@@ -228,7 +228,7 @@ class SACBinaryCritic(SAC):
         # When training of binary critic starts, swap action_criterion for 'safest'
         if self._update_count == self._cfgs.algo_cfgs.bc_start:
             self._actor_critic.action_criterion = self._cfgs.model_cfgs.action_criterion
-            print(f"Swapping to 'safest' action criterion")
+            print(f"Swapping to '{self._actor_critic.action_criterion}' action criterion")
 
         for _ in range(self._cfgs.algo_cfgs.update_iters):
             data = self._buf.sample_batch()
