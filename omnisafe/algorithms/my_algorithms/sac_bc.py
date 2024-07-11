@@ -302,15 +302,21 @@ class SACBinaryCritic(SAC):
 
         with torch.no_grad():
             next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
-            soft_labels = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
-        soft_labels = torch.maximum(soft_labels, cost).clamp_max(1)
+            if self._cfgs.model_cfgs.binary_critic_labelling == 'soft':
+                labels = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
+            elif self._cfgs.model_cfgs.binary_critic_labelling == 'hard':
+                labels = self._actor_critic.target_binary_critic.get_safety_label(next_obs, next_a)
+            else:
+                raise (ValueError, "binary critic's labelling should be either 'soft' or 'hard', not"
+                                   f"{self._actor_critic.binary_critic_labelling}")
+        labels = torch.maximum(labels, cost).clamp_max(1)
         # print(f'soft_labels are {soft_labels} of shape {soft_labels.shape}')
 
         # 07/05/24
         # Regress each binary critic towards the consensus label.
         FBCE = FilteredBCELoss(operator=self._cfgs.model_cfgs.operator)
         loss = sum(
-            FBCE(pred, soft_labels) for pred in self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
+            FBCE(pred, labels) for pred in self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
         )
 
         if self._cfgs.algo_cfgs.use_critic_norm:
@@ -320,7 +326,7 @@ class SACBinaryCritic(SAC):
         # print(f'Binary critic loss is {loss:.4f}')
         if torch.isnan(loss):
             print(f'Loss is NaN')
-            for i, v in enumerate(zip(values, soft_labels)):
+            for i, v in enumerate(zip(values, labels)):
                 print(f'ix = {i}\nlhs: {v[0]}\trhs: {v[1]}\n')
 
         loss.backward()
@@ -339,7 +345,7 @@ class SACBinaryCritic(SAC):
                            )
 
         # Get classifier metrics?
-        metrics = self._actor_critic.binary_critic.classifier_metrics(values, soft_labels)
+        metrics = self._actor_critic.binary_critic.classifier_metrics(values, labels)
         self._logger.store(
             # {'Classifier/per_step_epochs': epoch,
             {
