@@ -89,7 +89,7 @@ defaults:
     # the maximum number of epochs for binary critic update
     binary_critic_max_epochs: 1  # 100
     # whether to use 'hard' or 'soft' labels to train the binary critic.
-    binary_critic_training_labels: hard
+    bc_training_labels: hard
   # logger configurations
   logger_cfgs:
     # use wandb for logging

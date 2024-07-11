@@ -184,18 +184,9 @@ class SACBinaryCritic(SAC):
 
         log_safety = self._actor_critic.binary_critic.log_assess_safety(obs, action)
         # Only penalize unsafe labels
-        labels = self._actor_critic.binary_critic.get_safety_label(obs, action)
-        # print(f'Updating loss_pi:\nUnsafe labels: {torch.count_nonzero(labels)} out of {labels.shape}\n')
-        log_safety = torch.where(labels == 1, log_safety, 0.0)
-
-        # log_safety = torch.log(
-        #     1 - self._actor_critic.binary_critic.assess_safety(obs, action).clamp_max(
-        #         self._cfgs.algo_cfgs.clamp_unsafe_labels)
-        # )
-        # if log_safety.min() <= -1e3:
-        #     print(f'log_safety:\n\t-max {log_safety.max()}\n\t-min: {log_safety.min()}\n\t-mean: {log_safety.mean()}\n')
-        #     print(f'standard loss:\n\t-max {loss.max()}\n\t-min: {loss.min()}\n\t-mean: {loss.mean()}')
-        return (loss - log_safety).mean()
+        # labels = self._actor_critic.binary_critic.get_safety_label(obs, action)
+        # log_safety = torch.where(labels == 1, log_safety, 0.0)
+        return (loss + log_safety).mean()
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""
@@ -302,13 +293,13 @@ class SACBinaryCritic(SAC):
 
         with torch.no_grad():
             next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
-            if self._cfgs.model_cfgs.binary_critic_labelling == 'soft':
+            if self._cfgs.algo_cfgs.bc_training_labels == 'soft':
                 labels = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
-            elif self._cfgs.model_cfgs.binary_critic_labelling == 'hard':
+            elif self._cfgs.algo_cfgs.bc_training_labels == 'hard':
                 labels = self._actor_critic.target_binary_critic.get_safety_label(next_obs, next_a)
             else:
                 raise (ValueError, "binary critic's labelling should be either 'soft' or 'hard', not"
-                                   f"{self._actor_critic.binary_critic_labelling}")
+                                   f"{self._actor_critic.algo_cfgs.bc_training_labels}")
         labels = torch.maximum(labels, cost).clamp_max(1)
         # print(f'soft_labels are {soft_labels} of shape {soft_labels.shape}')
 
