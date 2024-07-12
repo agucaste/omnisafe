@@ -93,7 +93,7 @@ defaults:
     # barrier type: either 'log' or 'hyperbolic'
     barrier_type: hyperbolic
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
-    barrier_training: off-policy
+    bc_training: off-policy
 
   # logger configurations
   logger_cfgs:

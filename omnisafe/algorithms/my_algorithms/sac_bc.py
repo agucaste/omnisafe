@@ -300,13 +300,13 @@ class SACBinaryCritic(SAC):
         # print(f'values is {values} of shape {values.shape}')
 
         with torch.no_grad():
-            if self._cfgs.algo_cfgs.barrier_training == 'off-policy':
+            if self._cfgs.algo_cfgs.bc_training == 'off-policy':
                 next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
-            elif self._cfgs.algo_cfgs.barrier_training == 'on-policy':
+            elif self._cfgs.algo_cfgs.bc_training == 'on-policy':
                 next_a = self._actor_critic.predict(next_obs, deterministic=False)
             else:
                 raise (ValueError, f'barrier training mode should be off-policy or on-policy, '
-                                   f'not {self._cfgs.algo_cfgs.barrier_training}')
+                                   f'not {self._cfgs.algo_cfgs.bc_training}')
 
             if self._cfgs.algo_cfgs.bc_training_labels == 'soft':
                 labels = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
