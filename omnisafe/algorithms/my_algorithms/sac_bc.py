@@ -186,7 +186,7 @@ class SACBinaryCritic(SAC):
         # Only penalize unsafe labels
         # labels = self._actor_critic.binary_critic.get_safety_label(obs, action)
         # log_safety = torch.where(labels == 1, log_safety, 0.0)
-        return (loss + log_safety).mean()
+        return (loss - log_safety).mean()
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""
