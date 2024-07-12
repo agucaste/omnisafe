@@ -182,11 +182,19 @@ class SACBinaryCritic(SAC):
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
 
-        log_safety = self._actor_critic.binary_critic.log_assess_safety(obs, action)
+        if self._cfgs.algo_cfgs.barrier_type == 'log':
+            barrier = self._actor_critic.binary_critic.log_assess_safety(obs, action)
+        elif self._cfgs.algo_cfgs.barrier_type == 'hyperbolic':
+            barrier = self._actor_critic.binary_critic.hyperbolic_assess_safety(obs, action)
+        else:
+            raise (ValueError, 'Barrier penalization not implemented for {}-type barrier'.format(
+                self._cfgs.algo_cfgs.barrier_type)
+                   )
+
         # Only penalize unsafe labels
         # labels = self._actor_critic.binary_critic.get_safety_label(obs, action)
         # log_safety = torch.where(labels == 1, log_safety, 0.0)
-        return (loss - log_safety).mean()
+        return (loss - barrier).mean()
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""
@@ -292,7 +300,14 @@ class SACBinaryCritic(SAC):
         # print(f'values is {values} of shape {values.shape}')
 
         with torch.no_grad():
-            next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
+            if self._cfgs.algo_cfgs.barrier_training == 'off-policy':
+                next_a, *_ = self._actor_critic.pick_safe_action(next_obs, criterion='safest', mode='off_policy')
+            elif self._cfgs.algo_cfgs.barrier_training == 'on-policy':
+                next_a = self._actor_critic.predict(next_obs, deterministic=False)
+            else:
+                raise (ValueError, f'barrier training mode should be off-policy or on-policy, '
+                                   f'not {self._cfgs.algo_cfgs.barrier_training}')
+
             if self._cfgs.algo_cfgs.bc_training_labels == 'soft':
                 labels = self._actor_critic.target_binary_critic.assess_safety(next_obs, next_a)
             elif self._cfgs.algo_cfgs.bc_training_labels == 'hard':

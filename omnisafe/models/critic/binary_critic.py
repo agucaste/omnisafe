@@ -188,6 +188,25 @@ class BinaryCritic(Critic):
             log_safety = -x + nn.functional.logsigmoid(x)
         return log_safety.mean(dim=0)
 
+    def hyperbolic_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the barrier term corresponding to a hyperbolic penalization of the form:
+                    B(s,a) = - b(s,a) / (1 - b(s,a) ).
+
+        Uses direct computation with the last layer before the sigmoid for numerical stability.
+        Args:
+            obs ():
+            a ():
+
+        Returns:
+
+        """
+        with torch.no_grad():
+            x = torch.stack(self.forward(obs=obs, act=a))
+        barrier = -torch.exp(-x)
+        return barrier
+
+
     def get_safety_label(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
         """
         returns whether an (o,a) pair is unsafe (1) or safe (0).

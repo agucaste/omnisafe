@@ -90,6 +90,11 @@ defaults:
     binary_critic_max_epochs: 1  # 100
     # whether to use 'hard' or 'soft' labels to train the binary critic.
     bc_training_labels: soft
+    # barrier type: either 'log' or 'hyperbolic'
+    barrier_type: hyperbolic
+    # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
+    barrier_training: off-policy
+
   # logger configurations
   logger_cfgs:
     # use wandb for logging
