@@ -111,9 +111,9 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         self._act_dim = self.actor._act_dim
 
         # Check whether to act in a 'safe' or 'most_uncertain' manner.
-        self.how_to_act = 'safe'
+        # self.how_to_act = 'safe'
         # self.how_to_act = model_cfgs.binary_critic.how_to_act
-        # self.setup_step_method()
+        self.setup_step_method(filter_actions=model_cfgs.filter_actions)
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
@@ -351,24 +351,6 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         act = torch.from_numpy(act)
         return act
 
-    def step(self, obs: torch.Tensor, deterministic: bool = False) -> tuple[torch.Tensor, ...]:
-        """Choose the action based on the observation. used in rollout without gradient.
-
-        Args:
-            obs (torch.tensor): The observation from environments.
-            deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
-
-        Returns:
-            The deterministic action if deterministic is True.
-            Action with noise other wise.
-        """
-        with torch.no_grad():
-            a = self.actor.predict(obs, deterministic=deterministic)
-            safety_val = self.binary_critic.assess_safety(obs=obs, a=a)
-            num_resamples = torch.Tensor([0.0])
-        return a, safety_val, num_resamples
-
-
     def pick_safe_action(self, obs: torch.Tensor, deterministic: bool = False, criterion: Optional[str] = None,
                          mode: str = 'on_policy', ) -> tuple[torch.Tensor, ...]:
         """Pick a 'safe' action based on the observation.
@@ -499,53 +481,78 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         ):
             target_param.data.copy_(tau_binary * param.data + (1 - tau_binary) * target_param.data)
 
-    def setup_step_method(self):
-        def pick_uncertain_action(obs: torch.Tensor, deterministic: bool = False, ) -> tuple[torch.Tensor, ...]:
-            """
-            Picks the most uncertain action possible (the one with value closest to 0.5)
+    def setup_step_method(self, filter_actions: bool):
+        """
+        Setups self.step() method, depending on the value of 'filter_actions'.
+        - filter_actions=True:
+            self.step = self.pick_safe_action
+            (i.e., actor proposes many actions and binary critic picks safest one.)
+        - filter_actions=False:
+            self.step = vanilla_step
+            (i.e., the step method follows the typical actor's step, with an action sampled from a gaussian.
 
+        Args:
+            filter_actions (bool): whether to filter out the actions or not.
+        """
+
+        def vanilla_step(obs: torch.Tensor, deterministic: bool = False) -> tuple[torch.Tensor, ...]:
+            """Choose the action based on the observation. used in rollout without gradient.
             Args:
                 obs (torch.tensor): The observation from environments.
-                deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
-                criterion (str): (Update 05/08/24)
-                                'first' or 'safest'. 'first' selects the first action that was deemed safe, 'safest' grabs
-                                 the safest one among all the sampled ones.
+                deterministic (bool, optional): Whether to use deterministic action. Defaults to False.
 
             Returns:
-                a: A candidate safe action, or the safest action among the samples.
-                safety_val: the safety index (between 0 (safe) and 1 (unsafe)).
-                num_resamples: the number of resamples done before a safe action was found.
+                The deterministic action if deterministic is True.
+                Action with noise other wise.
             """
-            batch_size = obs.shape[0]  # B
-            # Repeat the observation to feed to the actor; original obs is (B, O)
-            repeated_obs = self.repeat_obs(obs, self.cost_critic.max_resamples)  # (B*R, O)
             with torch.no_grad():
-                # Get the actions
-                a = self.actor.predict(repeated_obs, deterministic=deterministic).to(self.device)  # (B*R, A)
-                # Assess their safety
-                safety_val = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
-                                                                                           self.cost_critic.max_resamples)
-
-            most_uncertain = torch.argmin(torch.abs(safety_val - 0.5), dim=-1)  # (B, ) Get the action closest to 0.5
-
-            a = a.view(batch_size, self.cost_critic.max_resamples, -1)  # (B, R, A)
-            a = a[torch.arange(batch_size), most_uncertain]  # (B, A)
-
-            safety_val = safety_val[torch.arange(batch_size), most_uncertain]
-            num_resamples = self.cost_critic.max_resamples * torch.ones_like(safety_val)
-
+                a = self.actor.predict(obs, deterministic=deterministic)
+                safety_val = self.binary_critic.assess_safety(obs=obs, a=a)
+                num_resamples = torch.Tensor([0.0])
             return a, safety_val, num_resamples
 
 
-
-        print(f'how to act is {self.how_to_act}')
-        if self.how_to_act == 'safe':
+        if filter_actions:
             setattr(self, 'step', self.pick_safe_action)
-        elif self.how_to_act == 'uncertain':
-            setattr(self, 'step', pick_uncertain_action)
         else:
-            raise (ValueError, f'when setting up action picking how_to_act should be "safe" or "uncertain",'
-                               f'not "{self.how_to_act}"')
+            setattr(self, 'step', vanilla_step)
+
+
+    # def pick_uncertain_action(obs: torch.Tensor, deterministic: bool = False, ) -> tuple[torch.Tensor, ...]:
+    #     """
+    #     Picks the most uncertain action possible (the one with value closest to 0.5)
+    #
+    #     Args:
+    #         obs (torch.tensor): The observation from environments.
+    #         deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
+    #         criterion (str): (Update 05/08/24)
+    #                         'first' or 'safest'. 'first' selects the first action that was deemed safe, 'safest' grabs
+    #                          the safest one among all the sampled ones.
+    #
+    #     Returns:
+    #         a: A candidate safe action, or the safest action among the samples.
+    #         safety_val: the safety index (between 0 (safe) and 1 (unsafe)).
+    #         num_resamples: the number of resamples done before a safe action was found.
+    #     """
+    #     batch_size = obs.shape[0]  # B
+    #     # Repeat the observation to feed to the actor; original obs is (B, O)
+    #     repeated_obs = self.repeat_obs(obs, self.cost_critic.max_resamples)  # (B*R, O)
+    #     with torch.no_grad():
+    #         # Get the actions
+    #         a = self.actor.predict(repeated_obs, deterministic=deterministic).to(self.device)  # (B*R, A)
+    #         # Assess their safety
+    #         safety_val = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
+    #                                                                                    self.cost_critic.max_resamples)
+    #
+    #     most_uncertain = torch.argmin(torch.abs(safety_val - 0.5), dim=-1)  # (B, ) Get the action closest to 0.5
+    #
+    #     a = a.view(batch_size, self.cost_critic.max_resamples, -1)  # (B, R, A)
+    #     a = a[torch.arange(batch_size), most_uncertain]  # (B, A)
+    #
+    #     safety_val = safety_val[torch.arange(batch_size), most_uncertain]
+    #     num_resamples = self.cost_critic.max_resamples * torch.ones_like(safety_val)
+    #
+    #     return a, safety_val, num_resamples
 
     @staticmethod
     def repeat_obs(obs, num_repeat):

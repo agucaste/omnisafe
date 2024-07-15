@@ -225,9 +225,9 @@ class SACBinaryCritic(SAC):
         # 4. Repeat steps 2, 3 until the ``update_iters`` times.
 
         # When training of binary critic starts, swap action_criterion for 'safest'
-        if self._update_count == self._cfgs.algo_cfgs.bc_start:
-            self._actor_critic.action_criterion = self._cfgs.model_cfgs.action_criterion
-            print(f"Swapping to '{self._actor_critic.action_criterion}' action criterion")
+        # if self._update_count == self._cfgs.algo_cfgs.bc_start:
+        #     self._actor_critic.action_criterion = self._cfgs.model_cfgs.action_criterion
+        #     print(f"Swapping to '{self._actor_critic.action_criterion}' action criterion")
 
         for _ in range(self._cfgs.algo_cfgs.update_iters):
             data = self._buf.sample_batch()
@@ -370,6 +370,9 @@ class FilteredBCELoss(nn.Module):
     """
     def __init__(self, operator: str, threshold=0.5):
         super().__init__()
+        if operator not in ['inequality', 'equality']:
+            raise (ValueError, "'operator' for binary critic should be 'inequality' or 'equality,"
+                               f"not {operator}")
         self.operator = operator
         self.threshold = threshold
 
@@ -378,6 +381,6 @@ class FilteredBCELoss(nn.Module):
             # 'mask' is the transitions that are being considered.
             mask = ~torch.logical_and(predictions >= self.threshold, targets <= self.threshold)
             loss = binary_cross_entropy(predictions[mask], targets[mask])
-        else:
+        elif self.operator == 'equality':
             loss = binary_cross_entropy(predictions, targets)
         return loss
