@@ -634,7 +634,7 @@ def path_to_experiments(base_dir: str = BASE_DIR, sub_string: str | None = None)
     if sub_string is None:
         # base_dir should point to the experiment, check that its last digit is a number
         assert base_dir[-1].isdigit()
-        return [base_dir]
+        dirs = [base_dir]
     else:
         # Find all the sub-folders that match the sub-string
         dirs = []
@@ -642,16 +642,22 @@ def path_to_experiments(base_dir: str = BASE_DIR, sub_string: str | None = None)
         for item in scan_dir:
             if item.is_dir() and sub_string in item.name:
                 dirs.append(item.path)
+        print('Found the following paths with experiments:')
+        for dir in dirs:
+            print(dir)
     return dirs
 
 
 if __name__ == '__main__':
     import os
+    from argparse import ArgumentParser
     from omnisafe.evaluator import Evaluator
 
-    paths = path_to_experiments(BASE_DIR, '07-10-17-23')
+    parser = ArgumentParser()
+    parser.add_argument('--dir', type=str, default='07-11-17-31-3', help='Experiment string')
+    args = parser.parse_args()
 
-    # seed-000-2024-07-05-17-45-27'
+    paths = path_to_experiments(BASE_DIR, args.dir)
 
     for experiment_path in paths:
         print(f'Opening experiment in {experiment_path}')
@@ -682,6 +688,7 @@ if __name__ == '__main__':
                 os.makedirs(save_dir, exist_ok=True)
                 plt.tight_layout()
                 plt.savefig(save_dir + evaluator._model_name.split('.')[0] + '.png', dpi=200)
+                # plt.savefig(save_dir + evaluator._model_name.split('.')[0] + '.pdf')
                 plt.close()
                 # evaluator.render(num_episodes=1)
                 # evaluator.evaluate(num_episodes=1)
