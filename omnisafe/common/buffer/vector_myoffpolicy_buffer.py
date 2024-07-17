@@ -22,7 +22,7 @@ from __future__ import annotations
 import torch
 import numpy as np
 import math
-from typing import Optional
+from typing import Optional, Union
 
 from gymnasium.spaces import Box
 
@@ -113,8 +113,9 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
             'num_resamples': torch.zeros((size, num_envs), dtype=torch.float32, device=device),
         }
         if self.prioritize_replay:
+            assert num_envs == 1, f'num_envs should be 1 when using Prioritized Experience Replay, not {num_envs}.'
             # Sanity check
-            self.sum_tree = SumTree(self._size)
+            self.sum_tree = SumTree(self._max_size)
             self.epsilon = epsilon
             self.alpha = alpha
 
@@ -144,12 +145,33 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
         )
 
     def store(self, **data: torch.Tensor) -> None:
-        #TODO: This can be done more efficiently. Right now, safety_idx is being saved both 
+        #TODO: This can be done more efficiently. Right now, safety_idx is being saved both
         #
         super().store(**data)
         if self.prioritize_replay:
             # Add safety index to the sum tree.
-            self.sum_tree.add(data['safety_idx'])
+            priority = self.compute_priority(data['safety_idx'])
+            self.sum_tree.add(priority)
+
+    def compute_priority(self, safety_idx: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the priority based on the safety indices.
+
+        Given indices of the form b(s_t, a_t), we define its priority as:
+                p_t = (.5 - |.5 - b(s_t,a_t)|)^α + ε.
+
+        the term inside the parenthesis is larger for points near the margin (0.5), and decays to zero for 'correct'
+        labels (either 0 or 1).
+
+        Args:
+            safety_idx (tensor): the values of b(s_t, a_t)
+
+        Returns:
+
+        """
+        p = .5 - torch.abs(.5 - safety_idx)
+        return torch.pow(p, self.alpha) + self.epsilon
+
 
     def update_tree_values(self, values: torch.Tensor):
         """
@@ -159,7 +181,7 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
         Returns:
 
         """
-        priorities = torch.power(values, self.alpha) + self.epsilon
+        priorities = self.compute_priority(values)
         for (i, p) in zip(self.idx, priorities):
             self.sum_tree.update(i, p)
 
@@ -171,6 +193,8 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
         """
         if self.prioritize_replay:
             self.idx = self.sum_tree.sample_leaf_idx(self._batch_size)
+            # print(f'sampled indices using SumTree are {self.idx}')
+            # print(f'\n\n sum tree is {self.sum_tree}')
         else:
             self.idx = torch.randint(
                 0,
@@ -178,6 +202,7 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
                 (self._batch_size * self._num_envs,),
                 device=self._device,
             )
+            # print(f'sampled indices not using SumTree are {self.idx}')
         env_idx = torch.arange(self._num_envs, device=self._device).repeat(self._batch_size)
         # print(f'indeces are {idx}\n env_idx are {env_idx}')
         return {key: value[self.idx, env_idx] for key, value in self.data.items()}
@@ -220,8 +245,13 @@ class SumTree:
         Returns:
 
         """
+        # print(f'propagating index {idx} with change {change}')
         parent = (idx - 1) // 2
+        # print(f'parent node is {parent}')
+        # print(f'its previous value was {self.tree[parent]}', end="")
         self.tree[parent] += change
+        # print(f', and its new value is {self.tree[parent]}')
+
 
         if parent != 0:
             self._propagate(parent, change)
@@ -240,7 +270,7 @@ class SumTree:
             val (array-like): the value to compare against.
 
         Returns:
-            j (idx): the retrieved index.
+            j (int): the retrieved index. This is an index in the tree, not in the base array.
 
         """
         left = 2 * idx + 1
@@ -266,14 +296,14 @@ class SumTree:
 
         # Update the values in the tree.
         idx = self.write
-        print(f'adding node with value {value} at index {idx}')
+        # print(f'adding node with value {value} at index {idx}')
         self.update(idx, value)
 
         self.write += 1
         if self.write >= self.capacity:  # buffer is full. next time replace the left-most leaf node.
             self.write = 0
 
-    def update(self, idx: Union[int, list[int]], value: torch.tensor | np.ndarray):
+    def update(self, idx: int, value: torch.tensor | np.ndarray):
         """
         Updates the value of node 'idx' with value 'value'
         Args:
@@ -287,8 +317,8 @@ class SumTree:
         # transform the idx to tree representation
         idx += self.capacity - 1
 
-        change = value - self.tree[idx]
         # Update the value in the node and propagate.
+        change = value - self.tree[idx]
         self.tree[idx] = value
         self._propagate(idx, change)
 
@@ -337,10 +367,12 @@ class SumTree:
         Returns:
 
         """
-        dv = self.total // batch_size
-        low = np.arange(0, self.total, dv)
-        values = np.random.uniform(low=low, high=low + dv)
-
+        # print(f' total tree sum is {self.total}')
+        # print(f'sampling with batch_size:')
+        dv = self.total / batch_size
+        values = np.random.uniform(low=np.arange(batch_size) * dv,
+                                   high=(np.arange(batch_size) + 1) * dv)
+        # print(f'values sampled are {values}')
         ixs = torch.asarray([self.get_data_idx(v) for v in values], dtype=torch.int64)
         return ixs
 
@@ -399,10 +431,14 @@ class SumTree:
 
 
 if __name__ == '__main__':
-    sum_tree = SumTree(capacity=8)
+    sum_tree = SumTree(capacity=4)
     for x in range(8):
+        print(f'adding x: {x}')
         sum_tree.add(x)
-    sum_tree.print_tree()
+        sum_tree.print_tree()
+        print('\n')
+
+    print(sum_tree.total)
 
     print('sampling indices:')
     print(sum_tree.sample_leaf_idx(2))

@@ -118,6 +118,7 @@ class SACBinaryCritic(SAC):
             batch_size=self._cfgs.algo_cfgs.batch_size,
             num_envs=self._cfgs.train_cfgs.vector_env_nums,
             device=self._device,
+            prioritize_replay=self._cfgs.algo_cfgs.prioritized_experience_replay
         )
 
 
@@ -360,6 +361,11 @@ class SACBinaryCritic(SAC):
                 'Classifier/Miss_rate': metrics['miss_rate'].item()
             },
         )
+
+        # 07/17/24: If using prioritized experience replay, update the priority values
+        if self._cfgs.algo_cfgs.prioritized_experience_replay:
+            values = self._actor_critic.binary_critic.assess_safety(obs, act)
+            self._buf.update_tree_values(values)
 
 
 class FilteredBCELoss(nn.Module):

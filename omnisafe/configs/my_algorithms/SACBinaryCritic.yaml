@@ -95,7 +95,7 @@ defaults:
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
     bc_training: off-policy
     # Whether to use P.E.R., resampling transitions closer to the classification boundary.
-    prioritized_experience_replay: False
+    prioritized_experience_replay: True
 
   # logger configurations
   logger_cfgs:
