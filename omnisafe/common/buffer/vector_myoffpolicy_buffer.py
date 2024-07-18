@@ -158,9 +158,9 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
         Computes the priority based on the safety indices.
 
         Given indices of the form b(s_t, a_t), we define its priority as:
-                p_t = (.5 - |.5 - b(s_t,a_t)|)^α + ε.
+                p_t = [(.5 - |.5 - b(s_t,a_t)|) + ε.]^α
 
-        the term inside the parenthesis is larger for points near the margin (0.5), and decays to zero for 'correct'
+        the term inside ( . ) is non-negative, larger for points near the margin (0.5), and decays to zero for 'correct'
         labels (either 0 or 1).
 
         Args:
@@ -170,7 +170,7 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
 
         """
         p = .5 - torch.abs(.5 - safety_idx)
-        return torch.pow(p, self.alpha) + self.epsilon
+        return torch.pow(p + self.epsilon, self.alpha)
 
 
     def update_tree_values(self, values: torch.Tensor):

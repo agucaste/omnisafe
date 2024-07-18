@@ -58,7 +58,7 @@ defaults:
     critic_norm_coeff: 0.001
     # The soft update coefficient
     polyak: 0.005
-    polyak_binary: 0.005
+    polyak_binary: 1
     # The discount factor of GAE
     gamma: 0.99
     # Actor performs random action before `start_learning_steps` steps
