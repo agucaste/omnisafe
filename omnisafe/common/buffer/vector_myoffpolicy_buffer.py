@@ -155,21 +155,24 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
 
     def compute_priority(self, safety_idx: torch.Tensor) -> torch.Tensor:
         """
-        Computes the priority based on the safety indices.
+        Computes the priority based on the safety indices. The safety index mimics the TD-error between successive
+        samples.
 
-        Given indices of the form b(s_t, a_t), we define its priority as:
-                p_t = [(.5 - |.5 - b(s_t,a_t)|) + ε.]^α
+        Safety indices are of the form b(s,a)-b(s',a'), where the actions (a,a') come from either:
 
-        the term inside ( . ) is non-negative, larger for points near the margin (0.5), and decays to zero for 'correct'
-        labels (either 0 or 1).
+            - on-policy data collection (i.e., actions taken with the unfiltered NN policy), or,
+            - off-policy updates of the binary critic (i.e. actions taken as 'safest' possible).
+
 
         Args:
-            safety_idx (tensor): the values of b(s_t, a_t)
+            safety_idx (tensor): the safety index
 
         Returns:
+            The computed priority = (| b - b' | + ε )^α
 
         """
-        p = .5 - torch.abs(.5 - safety_idx)
+        # p = .5 - torch.abs(.5 - safety_idx)
+        p = torch.abs(safety_idx)
         return torch.pow(p + self.epsilon, self.alpha)
 
 

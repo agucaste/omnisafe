@@ -140,12 +140,12 @@ class MyOffPolicyAdapter(OnlineAdapter):
         for _ in range(rollout_step):
             act, safety_idx, num_resamples = agent.step(self._current_obs, deterministic=False)
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
-            # print(f'picking safe action {act}')
-            # print(f'next_obs: {next_obs} of shape {next_obs.shape}\n'
-            # print(f'r: {reward}; of shape {reward.shape}\n'
-            #       f'cost: {cost}, of shape {cost.shape}\n info: {info}')
-            # print(f'num_resampels: {num_resamples} of shape {num_resamples.shape}')
-            # print(f'safety index: {safety_idx}, of shape {safety_idx.shape}')
+
+            # Getting the on policy next action
+            # This is only used to compute b(s',a'), and will only be used for priority computation
+            next_a, *_ = agent.step(next_obs, deterministic=False)
+            next_b = agent.binary_critic.assess_safety(next_obs, next_a)
+
             self._log_value(reward=reward, cost=cost, info=info, num_resamples=num_resamples)
             real_next_obs = next_obs.clone()
             for idx, done in enumerate(torch.logical_or(terminated, truncated)):
@@ -162,7 +162,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
                 cost=cost,
                 done=torch.logical_and(terminated, torch.logical_xor(terminated, truncated)),
                 next_obs=real_next_obs,
-                safety_idx=safety_idx,
+                safety_idx=safety_idx - next_b,
                 num_resamples=num_resamples
             )
 

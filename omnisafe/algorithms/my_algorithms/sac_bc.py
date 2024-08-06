@@ -365,7 +365,8 @@ class SACBinaryCritic(SAC):
         # 07/17/24: If using prioritized experience replay, update the priority values
         if self._cfgs.algo_cfgs.prioritized_experience_replay:
             values = self._actor_critic.binary_critic.assess_safety(obs, act)
-            self._buf.update_tree_values(values)
+            next_values = self._actor_critic.binary_critic.assess_safety(next_obs, next_a)
+            self._buf.update_tree_values(values - next_values)
 
 
 class FilteredBCELoss(nn.Module):
