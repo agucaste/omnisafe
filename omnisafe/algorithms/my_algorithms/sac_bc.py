@@ -329,6 +329,10 @@ class SACBinaryCritic(SAC):
         labels = torch.maximum(labels, cost).clamp_max(1)
         # print(f'soft_labels are {soft_labels} of shape {soft_labels.shape}')
 
+        # 07/17/24: If using prioritized experience replay, update the priority values
+        if self._cfgs.algo_cfgs.prioritized_experience_replay:
+            self._buf.update_tree_values(values - labels)
+
         # 07/05/24
         # Regress each binary critic towards the consensus label.
         FBCE = FilteredBCELoss(operator=self._cfgs.model_cfgs.operator)
@@ -372,11 +376,11 @@ class SACBinaryCritic(SAC):
             },
         )
 
-        # 07/17/24: If using prioritized experience replay, update the priority values
-        if self._cfgs.algo_cfgs.prioritized_experience_replay:
-            values = self._actor_critic.binary_critic.assess_safety(obs, act)
-            next_values = self._actor_critic.binary_critic.assess_safety(next_obs, next_a)
-            self._buf.update_tree_values(values - next_values)
+
+        # if self._cfgs.algo_cfgs.prioritized_experience_replay:
+        #     values = self._actor_critic.binary_critic.assess_safety(obs, act)
+        #     next_values = self._actor_critic.binary_critic.assess_safety(next_obs, next_a)
+        #     self._buf.update_tree_values(values - next_values)
 
 
 class FilteredBCELoss(nn.Module):
