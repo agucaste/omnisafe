@@ -96,6 +96,9 @@ defaults:
     bc_training: off-policy
     # Whether to use P.E.R., resampling transitions closer to the classification boundary.
     prioritized_experience_replay: True
+    # PER hyperparameters
+    per_alpha: 0.5
+    per_epsilon: 0.0001
 
   # logger configurations
   logger_cfgs:

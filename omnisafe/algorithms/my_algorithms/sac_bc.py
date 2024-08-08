@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Implementation of the Soft Actor-Critic algorithm."""
+from collections import deque
 
 import torch
 from torch import nn, optim
@@ -118,7 +119,9 @@ class SACBinaryCritic(SAC):
             batch_size=self._cfgs.algo_cfgs.batch_size,
             num_envs=self._cfgs.train_cfgs.vector_env_nums,
             device=self._device,
-            prioritize_replay=self._cfgs.algo_cfgs.prioritized_experience_replay
+            prioritize_replay=self._cfgs.algo_cfgs.prioritized_experience_replay,
+            epsilon=self._cfgs.algo_cfgs.per_epsilon,
+            alpha=self._cfgs.algo_cfgs.per_alpha,
         )
 
 
@@ -147,9 +150,11 @@ class SACBinaryCritic(SAC):
         self._actor_critic.initialize_binary_critic(env=self._env, cfgs=self._cfgs, logger=self._logger)
 
         # What things to save.
+        self._sampled_positions = deque(maxlen=self._cfgs.algo_cfgs.batch_size*16)
         what_to_save: dict[str, Any] = {'pi': self._actor_critic.actor,
                                         'binary_critic': self._actor_critic.binary_critic,
-                                        'reward_critic': self._actor_critic.reward_critic}
+                                        'reward_critic': self._actor_critic.reward_critic,
+                                        'pos': self._sampled_positions}
         if self._cfgs.algo_cfgs.obs_normalize:
             obs_normalizer = self._env.save()['obs_normalizer']
             what_to_save['obs_normalizer'] = obs_normalizer
@@ -233,14 +238,18 @@ class SACBinaryCritic(SAC):
         for _ in range(self._cfgs.algo_cfgs.update_iters):
             data = self._buf.sample_batch()
             self._update_count += 1
-            obs, act, reward, cost, done, next_obs = (
+            obs, act, reward, cost, done, next_obs, pos = (
                 data['obs'],
                 data['act'],
                 data['reward'],
                 data['cost'],
                 data['done'],
                 data['next_obs'],
+                data['pos']
             )
+            # print(f'pos is {pos}\n\npos has shape {pos.shape}')
+            self._sampled_positions.extend(list(pos))
+
 
             self._update_reward_critic(obs, act, reward, done, next_obs)
             if self._cfgs.algo_cfgs.use_cost:
@@ -254,6 +263,7 @@ class SACBinaryCritic(SAC):
                 self._update_actor(obs)
                 self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak,
                                                  self._cfgs.algo_cfgs.polyak_binary)
+
         return
 
     def _update_binary_critic_until_consistency(self, obs, act, cost, next_obs):

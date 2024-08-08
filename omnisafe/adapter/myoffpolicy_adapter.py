@@ -31,6 +31,7 @@ from omnisafe.common.buffer.vector_myoffpolicy_buffer import VectorMyOffPolicyBu
 from omnisafe.common.logger import Logger
 from omnisafe.models.actor_safety_critic.actor_q_critic_binary_critic import ActorQCriticBinaryCritic
 from omnisafe.utils.config import Config
+from omnisafe.utils.my_utils import unwrap_env
 
 
 class MyOffPolicyAdapter(OnlineAdapter):
@@ -70,6 +71,11 @@ class MyOffPolicyAdapter(OnlineAdapter):
         self._current_obs, _ = self.reset()
         self._max_ep_len: int = 1000
         self._reset_log()
+
+        # 08/08/24: get the unwrapped environment (to access position of the robot)
+        self._unwrapped_env = unwrap_env(self._env)
+        self._task = self._unwrapped_env.task
+        self._robot = self._task.agent
 
     def eval_policy(  # pylint: disable=too-many-locals
         self,
@@ -155,6 +161,12 @@ class MyOffPolicyAdapter(OnlineAdapter):
                     self._log_metrics(logger, idx)
                     self._reset_log(idx)
 
+            # 08/08/24: get robot's position
+            pos = torch.asarray(self._robot.pos[0:2], dtype=torch.float32).unsqueeze(0)
+            # print(f'pos is {pos} of shape {pos.shape}')
+            # print(f'act is {act} of shape {act.shape}')
+            # print(f'reward is {reward}, oh shape {reward.shape}')
+            # print(f'obs has shape {self._current_obs.shape}')
             buffer.store(
                 obs=self._current_obs,
                 act=act,
@@ -163,7 +175,8 @@ class MyOffPolicyAdapter(OnlineAdapter):
                 done=torch.logical_and(terminated, torch.logical_xor(terminated, truncated)),
                 next_obs=real_next_obs,
                 safety_idx=safety_idx - next_b,
-                num_resamples=num_resamples
+                num_resamples=num_resamples,
+                pos=pos
             )
 
             self._current_obs = next_obs

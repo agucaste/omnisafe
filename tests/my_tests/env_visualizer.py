@@ -303,7 +303,7 @@ def eval_metrics(
     return list_of_metrics
 
 
-def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]],
+def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], sampled_positions: torch.Tensor | None,
                      num_eps: int = 3) -> plt.Figure:
     """
 
@@ -443,7 +443,9 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]],
 
     cmap = plt.get_cmap('RdBu_r')
 
-    nrows, ncols = num_eps+1, 8  # one row for each episode, plus extra row for aggregate metrics
+    # one row for each episode, plus extra row for aggregate metrics
+    nrows = num_eps+1
+    ncols = 8 if len(sampled_positions) == 0 else 9
     fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols*4, nrows*3))  # , sharex=True, sharey=True)
     for i, ep in enumerate(ep_ixs):
         ep_metric = list_of_metrics[ep]
@@ -532,6 +534,25 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]],
     plot_histogram(agg.get('q_error'), ax, color='goldenrod', log_y=False)
     ax.axvline(mean_error, c='darkgoldenrod', linewidth=3)
     ax.set_ylabel(fr'mean = {mean_error:.1f}')
+
+    # 08/08/24: add sampled points with PER.
+    if len(sampled_positions) > 0:
+        x, y = zip(*sampled_positions)
+        ax = axs[0, 8]
+        h = ax.hist2d(x, y, cmap='Blues', bins=50)
+        fig.colorbar(h[3], ax=ax)
+        plot_layout(geoms, ax)
+        ax.set_title('Sampled points during training')
+
+        ax = axs[1, 8]
+        # ax = axs[1]
+        h = ax.scatter(x, y, alpha=.1, s=mkr_size/8, c='blue')
+        plot_layout(geoms, ax)
+
+        ax = axs[2, 8]
+        h = ax.hexbin(x, y, cmap='Blues', bins=50)
+        plot_layout(geoms, ax)
+
     return fig
 
 
@@ -554,68 +575,11 @@ def get_safety_crossovers(c: np.ndarray) -> np.ndarray:
 ALGO = 'SACBinaryCritic'
 ENV_ID = 'SafetyPointCircle1-v0'
 ALGO_TYPE = 'my_algorithms'
-
-# cfgs = get_default_kwargs_yaml(ALGO, ENV_ID, ALGO_TYPE)
-# cfgs.recurisve_update({'model_cfgs': {'binary_critic': {'num_critics': 5}}})
 env = make(ENV_ID, num_envs=1)  # , device=torch.device('cpu'))
 o, _ = env.reset()
 task = env._env.task
 robot = task.agent
 geoms = env._env.task._geoms
-
-# trajectory = []
-# T = 100
-# for t in range(T):
-#     a = torch.tensor(env.action_space.sample())
-#     env.step(a)
-#     xy = robot.pos[0:2]
-#     trajectory.append(xy)
-# x, y = zip(*trajectory)
-#
-#
-# fig, ax = plt.subplots()
-# lines = colored_line(x=x, y=y, c=np.arange(T), ax=ax, cmap='cool')
-# fig.colorbar(lines)
-# plot_layout(geoms, ax)
-#
-# lim = geoms.get('circle').radius + .1
-# ax.set_xlim(-lim, lim)
-# ax.set_ylim(-lim, lim)
-# ax.set_xticks([])
-# ax.set_yticks([])
-# ax.set_aspect('equal')
-# plt.tight_layout()
-# # plt.show()
-# plt.close()
-
-
-
-# custom_cfgs = dict(
-#     seed=13,
-#     model_cfgs=dict(
-#         binary_critic=dict(axiomatic_data=dict(epochs=1), init_samples=10)
-#     ),
-#     logger_cfgs=dict(use_wandb=False)
-# )
-# algo = Agent(ALGO, ENV_ID, custom_cfgs=custom_cfgs)
-# actor_critic = algo.agent._actor_critic
-# env = algo.agent._env
-# print(f'type of env is {type(env)}')
-
-
-
-
-# print('actor network:')
-# print(actor_critic.actor)
-# print('binary critic:')
-# print(actor_critic.binary_critic)
-#
-# episodes = 3
-# metrics = eval_metrics(env, episodes, actor_critic)
-# plot_all_metrics(metrics)
-#
-# plt.tight_layout()
-# plt.show()
 
 BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/SACBinaryCritic-{SafetyPointCircle1-v0}/'
 #  seed-000-2024-07-08-11-14-55'
@@ -680,9 +644,10 @@ if __name__ == '__main__':
                 actor_critic = evaluator._actor
                 gamma = evaluator._cfgs.algo_cfgs.gamma
 
-                episodes = 50
+                episodes = 5
                 metrics = eval_metrics(env, episodes, actor_critic, gamma)
-                fig = plot_all_metrics(metrics)
+                # print(f'robots position is {evaluator._robot_pos}')
+                fig = plot_all_metrics(metrics, evaluator._robot_pos)
 
                 save_dir = os.path.join(evaluator._save_dir, 'eval_metrics/')
                 os.makedirs(save_dir, exist_ok=True)

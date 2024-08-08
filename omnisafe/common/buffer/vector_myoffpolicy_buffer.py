@@ -67,7 +67,7 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
 
         prioritize_replay: bool = False,  # Whether to use Prioritized Experience Replay (PER) or not
         # If using PER need these two parameters
-        epsilon: float = 0.01,
+        epsilon: float = 0.0001,
         alpha: float = 0.5
     ) -> None:
         """Initialize an instance of :class:`VectorOffPolicyBuffer`."""
@@ -111,6 +111,7 @@ class VectorMyOffPolicyBuffer(OffPolicyBuffer):
             'next_obs': next_obs_buf,
             'safety_idx': torch.zeros((size, num_envs), dtype=torch.float32, device=device),
             'num_resamples': torch.zeros((size, num_envs), dtype=torch.float32, device=device),
+            'pos': torch.zeros((size, num_envs, 2), dtype=torch.float32, device=device)  # agent's position
         }
         if self.prioritize_replay:
             assert num_envs == 1, f'num_envs should be 1 when using Prioritized Experience Replay, not {num_envs}.'
