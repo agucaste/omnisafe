@@ -178,14 +178,14 @@ class BinaryCritic(Critic):
             for numerical stability.
             log(1 - S(x(s,a))) = log(e^{-x(s,a)}/(1+e^{-x(s,a)}) = -x(s,a) + logSigmoid(x(s,a))
         Args:
-            obs ():
-            a ():
+            obs (tensor): the observation(s)
+            a (tensor): the action(s)
 
         Returns:
         """
-        with torch.no_grad():
-            x = torch.stack(self.forward(obs=obs, act=a))
-            log_safety = -x + nn.functional.logsigmoid(x)
+        # with torch.no_grad():
+        x = torch.stack(self.forward(obs=obs, act=a))
+        log_safety = -x + nn.functional.logsigmoid(x)
         return log_safety.mean(dim=0)
 
     def hyperbolic_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
@@ -201,8 +201,8 @@ class BinaryCritic(Critic):
         Returns:
 
         """
-        with torch.no_grad():
-            x = torch.stack(self.forward(obs=obs, act=a))
+        # with torch.no_grad():
+        x = torch.stack(self.forward(obs=obs, act=a))
         barrier = -torch.exp(-x)
         return barrier
 
