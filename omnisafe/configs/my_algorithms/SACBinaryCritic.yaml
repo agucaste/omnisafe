@@ -27,7 +27,7 @@ defaults:
     # number of parallel agent, similar to a3c
     parallel: 1
     # total number of steps to train
-    total_steps: 2000000
+    total_steps: 600000  # 2000000
     # number of evaluate episodes
     eval_episodes: 1
   # algorithm configurations
@@ -90,12 +90,12 @@ defaults:
     binary_critic_max_epochs: 1  # 100
     # whether to use 'hard' or 'soft' labels to train the binary critic.
     bc_training_labels: soft
-    # barrier type: either 'log' or 'hyperbolic'
+    # barrier type: either 'log', 'filtered-log' or 'hyperbolic'
     barrier_type: log
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
     bc_training: off-policy
     # Whether to use P.E.R., resampling transitions closer to the classification boundary.
-    prioritized_experience_replay: True
+    prioritized_experience_replay: False
     # PER hyperparameters
     per_alpha: 0.5
     per_epsilon: 0.0001
@@ -109,7 +109,7 @@ defaults:
     # use tensorboard for logging
     use_tensorboard: True
     # save model frequency
-    save_model_freq: 50
+    save_model_freq: 10
     # save logger path
     log_dir: "./runs"
     # save model path

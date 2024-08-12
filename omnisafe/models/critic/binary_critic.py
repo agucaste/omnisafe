@@ -170,41 +170,76 @@ class BinaryCritic(Critic):
             safety_index = safety_index.mean(dim=0)  # , keepdim=True)
         return safety_index
 
-    def log_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    def barrier_penalty(self, obs:torch.Tensor, a:torch.Tensor, barrier_type: str) -> torch.Tensor:
         """
-        07/03/24
-        Computes
-            log[1 - Sigmoid( x(s,a) )], where x(s,a) is the return of the forward method. Uses LogSigmoid function
-            for numerical stability.
-            log(1 - S(x(s,a))) = log(e^{-x(s,a)}/(1+e^{-x(s,a)}) = -x(s,a) + logSigmoid(x(s,a))
+        08/12/24: Fusion of `log_assess_safety` and `hyperbolic_assess_safety` into one method.
+        Computes a penalization term given observations and actions, based on the `barrier_type`.
+        Barrier type:
+            - `log` -> log(1-b(s,a)).
+                In this case, uses LogSigmoid function for numerical stability.
+                log(1 - S(x(s,a))) = log(e^{-x(s,a)}/(1+e^{-x(s,a)}) = -x(s,a) + logSigmoid(x(s,a))
+            - `filtered_log` -> log(1-b(s,a)) over (s,a) classified unsafe.
+            - `hyperbolic` -> B(s,a) = - b(s,a) / (1 - b(s,a) ). This term is usually huge, log seems to work fine.
         Args:
-            obs (tensor): the observation(s)
-            a (tensor): the action(s)
-
-        Returns:
-        """
-        # with torch.no_grad():
-        x = torch.stack(self.forward(obs=obs, act=a))
-        log_safety = -x + nn.functional.logsigmoid(x)
-        return log_safety.mean(dim=0)
-
-    def hyperbolic_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        """
-        Computes the barrier term corresponding to a hyperbolic penalization of the form:
-                    B(s,a) = - b(s,a) / (1 - b(s,a) ).
-
-        Uses direct computation with the last layer before the sigmoid for numerical stability.
-        Args:
-            obs ():
-            a ():
+            obs (tensor): The observation(s)
+            a (tensor): The action(s)
+            barrier_type (str): The type of barrier function. One of `log`, `filtered_log` or `hyperbolic`
 
         Returns:
 
         """
-        # with torch.no_grad():
+        assert barrier_type in ['log', 'filtered-log', 'hyperbolic']
+
         x = torch.stack(self.forward(obs=obs, act=a))
-        barrier = -torch.exp(-x)
-        return barrier
+        if barrier_type == 'log':
+            # log(1-b(s,a)) in closed form
+            barrier = -x + nn.functional.logsigmoid(x)
+
+        elif barrier_type == 'filtered_log':
+            # log(1-b(s,a)) over unsafe samples.
+            barrier = -x + nn.functional.logsigmoid(x)
+            barrier = barrier * (barrier > 0.5)
+
+        elif barrier_type == 'hyperbolic':
+            barrier = -torch.exp(-x).mean(dim=0)
+        return barrier.mean(dim=0)
+
+
+    # def log_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    #     """
+    #     07/03/24
+    #     Computes
+    #         log[1 - Sigmoid( x(s,a) )], where x(s,a) is the return of the forward method. Uses LogSigmoid function
+    #         for numerical stability.
+    #         log(1 - S(x(s,a))) = log(e^{-x(s,a)}/(1+e^{-x(s,a)}) = -x(s,a) + logSigmoid(x(s,a))
+    #     Args:
+    #         obs (tensor): the observation(s)
+    #         a (tensor): the action(s)
+    #
+    #     Returns:
+    #     """
+    #     # with torch.no_grad():
+    #     x = torch.stack(self.forward(obs=obs, act=a))
+    #     log_safety = -x + nn.functional.logsigmoid(x)
+    #     return log_safety.mean(dim=0)
+    #
+    # def hyperbolic_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    #     """
+    #     Computes the barrier term corresponding to a hyperbolic penalization of the form:
+    #                 B(s,a) = - b(s,a) / (1 - b(s,a) ).
+    #
+    #     Uses direct computation with the last layer before the sigmoid for numerical stability.
+    #     Args:
+    #         obs ():
+    #         a ():
+    #
+    #     Returns:
+    #
+    #     """
+    #     # with torch.no_grad():
+    #     x = torch.stack(self.forward(obs=obs, act=a))
+    #     barrier = -torch.exp(-x)
+    #     return barrier
 
 
     def get_safety_label(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:

@@ -187,15 +187,16 @@ class SACBinaryCritic(SAC):
         log_prob = self._actor_critic.actor.log_prob(action)
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
+        barrier = self._actor_critic.binary_critic.barrier_penalty(obs, action, self._cfgs.algo_cfgs.barrier_type)
 
-        if self._cfgs.algo_cfgs.barrier_type == 'log':
-            barrier = self._actor_critic.binary_critic.log_assess_safety(obs, action)
-        elif self._cfgs.algo_cfgs.barrier_type == 'hyperbolic':
-            barrier = self._actor_critic.binary_critic.hyperbolic_assess_safety(obs, action)
-        else:
-            raise (ValueError, 'Barrier penalization not implemented for {}-type barrier'.format(
-                self._cfgs.algo_cfgs.barrier_type)
-                   )
+        # if self._cfgs.algo_cfgs.barrier_type == 'log':
+        #     barrier = self._actor_critic.binary_critic.log_assess_safety(obs, action)
+        # elif self._cfgs.algo_cfgs.barrier_type == 'hyperbolic':
+        #     barrier = self._actor_critic.binary_critic.hyperbolic_assess_safety(obs, action)
+        # else:
+        #     raise (ValueError, 'Barrier penalization not implemented for {}-type barrier'.format(
+        #         self._cfgs.algo_cfgs.barrier_type)
+        #            )
 
         # Only penalize unsafe labels
         # labels = self._actor_critic.binary_critic.get_safety_label(obs, action)
