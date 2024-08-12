@@ -186,23 +186,19 @@ class BinaryCritic(Critic):
             barrier_type (str): The type of barrier function. One of `log`, `filtered_log` or `hyperbolic`
 
         Returns:
-
+            1/N sum_{s,a} B(s,a), where B is the corresponding barrier
         """
-        assert barrier_type in ['log', 'filtered-log', 'hyperbolic']
 
         x = torch.stack(self.forward(obs=obs, act=a))
-        if barrier_type == 'log':
-            # log(1-b(s,a)) in closed form
-            barrier = -x + nn.functional.logsigmoid(x)
-
-        elif barrier_type == 'filtered_log':
-            # log(1-b(s,a)) over unsafe samples.
-            barrier = -x + nn.functional.logsigmoid(x)
-            barrier = barrier * (barrier > 0.5)
-
+        if 'log' in barrier_type:
+            B = -x + nn.functional.logsigmoid(x)  # log(1-b(s,a)) in closed form
+            if 'filtered' in barrier_type:
+                B = B * (B > 0.5)  # only consider unsafe samples
         elif barrier_type == 'hyperbolic':
-            barrier = -torch.exp(-x).mean(dim=0)
-        return barrier.mean(dim=0)
+            B = -torch.exp(-x)
+        else:
+            raise (ValueError, f'barrier_type should be `log`, `filtered-log` or `hyperbolic`, not {barrier_type}')
+        return B.mean(dim=0)
 
 
     # def log_assess_safety(self, obs: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
