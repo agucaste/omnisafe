@@ -193,7 +193,7 @@ class BinaryCritic(Critic):
         if 'log' in barrier_type:
             B = -x + nn.functional.logsigmoid(x)  # log(1-b(s,a)) in closed form
             if 'filtered' in barrier_type:
-                B = B * (B > 0.5)  # only consider unsafe samples
+                B = B * (self.assess_safety(obs, a) > 0.5)  # only consider unsafe samples
         elif barrier_type == 'hyperbolic':
             B = -torch.exp(-x)
         else:

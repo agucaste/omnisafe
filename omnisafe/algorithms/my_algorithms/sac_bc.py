@@ -137,9 +137,9 @@ class SACBinaryCritic(SAC):
         self._logger.register_key('Metrics/TestNumResamples', window_length=50)
         self._logger.register_key('Metrics/TestNumInterventions', window_length=50)
 
-        self._logger.register_key('/Loss/Loss_pi/grad_sac')
-        self._logger.register_key('/Loss/Loss_pi/grad_barrier')
-        self._logger.register_key('/Loss/Loss_pi/grad_total')
+        self._logger.register_key('Loss/Loss_pi/grad_sac')
+        self._logger.register_key('Loss/Loss_pi/grad_barrier')
+        self._logger.register_key('Loss/Loss_pi/grad_total')
 
         self._logger.register_key('Loss/binary_critic_axiomatic')
         self._logger.register_key('Loss/Loss_binary_critic')
@@ -193,14 +193,23 @@ class SACBinaryCritic(SAC):
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
         barrier = self._actor_critic.binary_critic.barrier_penalty(obs, action, self._cfgs.algo_cfgs.barrier_type)
+
+        # print(f'loss has shape {loss.shape}, and sum {loss.sum()}')
+        # print(f'barrier has shape {barrier.shape}, and sum {barrier.sum()}')
         # print(f'barrier is {barrier}')
 
         grad_sac = self._get_policy_gradient(loss)
         grad_b = self._get_policy_gradient(-barrier)
         grad = self._get_policy_gradient(loss-barrier)
-        self._logger.store({'/Loss/Loss_pi/grad_sac': grad_sac,
-                            '/Loss/Loss_pi/grad_barrier': grad_b,
-                            '/Loss/Loss_pi/grad_total': grad})
+        self._logger.store({'Loss/Loss_pi/grad_sac': grad_sac,
+                            'Loss/Loss_pi/grad_barrier': grad_b,
+                            'Loss/Loss_pi/grad_total': grad})
+
+
+        # print(f'loss has shape {loss.shape}, and sum {loss.sum()}')
+        # print(f'barrier has shape {barrier.shape}, and sum {barrier.sum()}')
+
+
         return (loss - barrier).mean()
 
     def _get_policy_gradient(self, loss: torch.Tensor) -> float:
@@ -220,7 +229,7 @@ class SACBinaryCritic(SAC):
                 grad_norm += param_norm.item() ** 2
                 param.grad.detach_()
                 param.grad.zero_()
-        grad_norm = grad_norm ** 0.5
+        # grad_norm = grad_norm ** 0.5
         # self._actor_critic.actor_optimizer.zero_grad()
         # print(f' grad norm is {grad_norm}')
         return grad_norm
