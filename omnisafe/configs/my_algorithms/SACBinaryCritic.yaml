@@ -91,7 +91,7 @@ defaults:
     # whether to use 'hard' or 'soft' labels to train the binary critic.
     bc_training_labels: soft
     # barrier type: either 'log', 'filtered-log' or 'hyperbolic'
-    barrier_type: filtered-log
+    barrier_type: proportional
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
     bc_training: off-policy
     # Whether to use P.E.R., resampling transitions closer to the classification boundary.
