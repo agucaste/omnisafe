@@ -180,6 +180,7 @@ class BinaryCritic(Critic):
                 log(1 - S(x(s,a))) = log(e^{-x(s,a)}/(1+e^{-x(s,a)}) = -x(s,a) + logSigmoid(x(s,a))
             - `filtered_log` -> log(1-b(s,a)) over (s,a) classified unsafe.
             - `hyperbolic` -> B(s,a) = - b(s,a) / (1 - b(s,a) ). This term is usually huge, log seems to work fine.
+            - `proportional` -> -b(s,a) * K , where K > 0
         Args:
             obs (tensor): The observation(s)
             a (tensor): The action(s)
@@ -196,6 +197,8 @@ class BinaryCritic(Critic):
                 B = B * (self.assess_safety(obs, a) > 0.5)  # only consider unsafe samples
         elif barrier_type == 'hyperbolic':
             B = -torch.exp(-x)
+        elif barrier_type == 'proportional':
+            B = -torch.sigmoid(x) * 10
         else:
             raise (ValueError, f'barrier_type should be `log`, `filtered-log` or `hyperbolic`, not {barrier_type}')
         return B.mean(dim=0)

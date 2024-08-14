@@ -193,6 +193,7 @@ def eval_metrics(
     episodes: int,
     agent: ActorQCriticBinaryCritic,
     gamma: float,
+    cfgs,
     # use_rand_action: bool = False  # for compatibility
 ) -> list[dict[str, Tuple[np.ndarray, ...]]]:
     """Rollout the environment with deterministic agent action.
@@ -214,6 +215,51 @@ def eval_metrics(
         """
         return agent.pos[0:2]
 
+    def gradients_loss_pi(agent: ActorQCriticBinaryCritic, cfgs, obs: torch.Tensor, action: torch.Tensor):
+
+        # Re-taing the action (this allows for gradient computation)
+        action = agent.actor.predict(obs, deterministic=False)
+        log_prob = agent.actor.log_prob(action)
+        q1_value_r, q2_value_r = agent.reward_critic(obs, action)
+        loss = cfgs.algo_cfgs.alpha * log_prob - torch.min(q1_value_r, q2_value_r)
+
+        # if cfgs.algo_cfgs.barrier_type == 'log':
+        #     barrier = actor_critic.binary_critic.log_assess_safety(obs, action)
+        # elif cfgs.algo_cfgs.barrier_type == 'hyperbolic':
+        #     barrier = agent.binary_critic.hyperbolic_assess_safety(obs, action)
+
+        loss.backward(retain_graph=True)
+
+        pi1_norm = 0
+        for name, param in agent.actor.named_parameters():
+            if param.grad is not None:
+                param_norm = param.grad.data.norm(2)
+                pi1_norm += param_norm.item() ** 2
+                # Set the corresponding gradient to zero (if not, they accumulate)
+                param.grad.detach_()
+                param.grad.zero_()
+        pi1_norm = pi1_norm ** 0.5
+
+
+        x = torch.stack(agent.binary_critic.forward(obs=obs, act=action))
+        log_safety = -x + torch.nn.functional.logsigmoid(x)
+        log_safety.backward()
+
+        # Compute the norm of the gradient
+        b_norm = 0
+        # for name, param in agent.binary_critic.named_parameters():
+        for name, param in agent.actor.named_parameters():
+            if param.grad is not None:
+                param_norm = param.grad.data.norm(2)
+                b_norm += param_norm.item() ** 2
+                # Set the corresponding gradient to zero (if not, they accumulate)
+                param.grad = None
+        b_norm = b_norm ** 0.5
+        # print(f'b norm is {b_norm}')
+        return pi1_norm, b_norm
+
+
+
     base_env = unwrap_env(env)
     task = base_env.task
     robot = task.agent
@@ -229,7 +275,9 @@ def eval_metrics(
             'gamma_ret',        # sum_t gamma^t r_t (discounted return)
             'sum_cost',         # sum_t c_t
             'qs',               # q_0(o,a) , q_1(o,a)  (SAC has two critics)
-            'q_error'           # Difference between q(o,a) and the expected discounted return.
+            'q_error',           # Difference between q(o,a) and the expected discounted return.
+            'grad_b',
+            'grad_sac'
         ]}
         # ep_metrics = dict(xy=[], b=[], log_term=[], r=[], c=[], ret=[], sum_cost=[], qs=[], q_error=[])
         ep_ret, ep_cost, ep_len, ep_resamples, ep_interventions = 0.0, 0.0, 0, 0, 0
@@ -245,8 +293,12 @@ def eval_metrics(
             # Get log(1-b)
             # act = act.reshape(-1, act.shape[-1])
             with torch.no_grad():
-                log_term = agent.binary_critic.log_assess_safety(obs, act)
+                log_term = agent.binary_critic.barrier_penalty(obs, act, cfgs.algo_cfgs.barrier_type)
                 qs = agent.reward_critic(obs, act)
+
+            pi1_norm, b_norm = gradients_loss_pi(agent, cfgs, obs, act)
+            ep_metrics['grad_sac'].append(pi1_norm)
+            ep_metrics['grad_b'].append(b_norm)
 
             xy = get_robot_pos(robot)
             ep_metrics['xy'].append(xy)
@@ -384,23 +436,41 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         if i == 0:
             ax.set_title(r'$b^\theta(s,a)$) per step')
 
+        # Gradients
+        ax = axs[i, 3]
+        # Get crossovers to the unsafe region
+        grad_b = ep_metric.get('grad_b')
+        grad_sac = ep_metric.get('grad_sac')
+        if single_out:
+            t_cross = get_safety_crossovers(c)  # crossing times
+            for t in t_cross:
+                ax.axvline(t, c='darkgrey', linewidth=1)
+        ax.plot(np.arange(len(grad_b)), grad_b, label=r'$\nabla_{\phi}\log(1-b^\theta(s_t,a_t))$')
+        ax.plot(np.arange(len(grad_b)), grad_sac, label=r'$\nabla_{\phi}\mathcal{L}_{SAC}$')
+        ax.legend()
+        ax.set_yscale('log')
+        # ax.axhline(.5, c='k', linestyle='--')
+        if i == 0:
+            ax.set_title(r"Gradient contributions for actor network")
+
+
         # Plot histograms
         log_penalty = ep_metric.get('log_term')
         if single_out:
             # b values
-            ax = axs[i, 3]
+            ax = axs[i, 4]
             plot_histogram(b, ax, cmap=cmap)
             if i == 0:
                 ax.set_title(r'Histogram of $b^\theta(s,a)$')
 
             # penalty
-            ax = axs[i, 4]
+            ax = axs[i, 5]
             plot_histogram(log_penalty, ax, color='chocolate')
             if i == 0:
                 ax.set_title(r'Histogram of $\log(1-b^\theta(s,a))$')
 
             # errors in q-estimates
-            ax = axs[i, 7]
+            ax = axs[i, 8]
 
             q_error = ep_metric.get('q_error')
             mean_error = q_error.mean()
@@ -414,7 +484,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         # q(s,a)
         q = ep_metric.get('qs')
         q = q.min(axis=1)
-        ax = axs[i, 5]
+        ax = axs[i, 6]
         ax.scatter(np.arange(len(q)), q, c='k', s=mkr_size)
         for t in t_cross:
             ax.axvline(t, c='darkgrey', linewidth=1)
@@ -422,7 +492,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
             ax.set_title(r'$q(s,a)$) per step')
 
         # q + penalty
-        ax = axs[i, 6]
+        ax = axs[i, 7]
         scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
         ax.set_yscale('symlog')
         # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, pos: f'{y:.1e}'))
@@ -445,7 +515,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
 
     # one row for each episode, plus extra row for aggregate metrics
     nrows = num_eps+1
-    ncols = 8 if len(sampled_positions) == 0 else 9
+    ncols = 9 if len(sampled_positions) == 0 else 10
     fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols*4, nrows*3))  # , sharex=True, sharey=True)
     for i, ep in enumerate(ep_ixs):
         ep_metric = list_of_metrics[ep]
@@ -498,14 +568,14 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         # q(s,a)
         q = ep_metric.get('qs')
         q = q.min(axis=1)
-        ax = axs[i, 5]
+        ax = axs[i, 6]
         ax.scatter(np.arange(len(q)), q, c='k', s=mkr_size)
         if i == 0:
             ax.set_title(r'$q(s,a)$) per step')
 
         # q + penalty
         log_penalty = ep_metric.get('log_term')
-        ax = axs[i, 6]
+        ax = axs[i, 7]
         scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
         if i == 0:
             ax.set_title(r'$q^\theta(s,a) + \log(1-b^\theta(s,a))$) per step')
@@ -522,14 +592,14 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
            }
 
     # b values
-    ax = axs[i, 3]
+    ax = axs[i, 4]
     plot_histogram(agg.get('b'), ax, cmap=cmap)
     ax.axvline(.5, c='k', linestyle='--')
     # penalty
-    ax = axs[i, 4]
+    ax = axs[i, 5]
     plot_histogram(agg.get('log_term'), ax, color='chocolate')
     # errors in q-estimates
-    ax = axs[i, 7]
+    ax = axs[i, 8]
     mean_error = agg.get('q_error').mean()
     plot_histogram(agg.get('q_error'), ax, color='goldenrod', log_y=False)
     ax.axvline(mean_error, c='darkgoldenrod', linewidth=3)
@@ -538,19 +608,19 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
     # 08/08/24: add sampled points with PER.
     if len(sampled_positions) > 0:
         x, y = zip(*sampled_positions)
-        ax = axs[0, 8]
-        h = ax.hist2d(x, y, cmap='Blues', bins=50)
+        ax = axs[0, 9]
+        h = ax.hist2d(x, y, cmap='plasma', bins=50)
         fig.colorbar(h[3], ax=ax)
         plot_layout(geoms, ax)
         ax.set_title('Sampled points during training')
 
-        ax = axs[1, 8]
+        ax = axs[1, 9]
         # ax = axs[1]
         h = ax.scatter(x, y, alpha=.1, s=mkr_size/8, c='blue')
         plot_layout(geoms, ax)
 
-        ax = axs[2, 8]
-        h = ax.hexbin(x, y, cmap='Blues', bins=50)
+        ax = axs[2, 9]
+        h = ax.hexbin(x, y, cmap='plasma', gridsize=50)
         plot_layout(geoms, ax)
 
     return fig
@@ -644,8 +714,8 @@ if __name__ == '__main__':
                 actor_critic = evaluator._actor
                 gamma = evaluator._cfgs.algo_cfgs.gamma
 
-                episodes = 5
-                metrics = eval_metrics(env, episodes, actor_critic, gamma)
+                episodes = 10
+                metrics = eval_metrics(env, episodes, actor_critic, gamma, evaluator._cfgs)
                 # print(f'robots position is {evaluator._robot_pos}')
                 fig = plot_all_metrics(metrics, evaluator._robot_pos)
 
