@@ -241,9 +241,11 @@ def eval_metrics(
         pi1_norm = pi1_norm ** 0.5
 
 
-        x = torch.stack(agent.binary_critic.forward(obs=obs, act=action))
-        log_safety = -x + torch.nn.functional.logsigmoid(x)
-        log_safety.backward()
+        # x = torch.stack(agent.binary_critic.forward(obs=obs, act=action))
+        # log_safety = -x + torch.nn.functional.logsigmoid(x)
+        # log_safety.backward()
+        barrier = agent.binary_critic.barrier_penalty(obs, action, barrier_type=cfgs.algo_cfgs.barrier_type)
+        barrier.backward()
 
         # Compute the norm of the gradient
         b_norm = 0
@@ -268,7 +270,7 @@ def eval_metrics(
         ep_metrics = {k: [] for k in [
             'xy',               # the trajectory in (x,y) plane
             'b',                # b(o,a)
-            'log_term',         # log(1-b(o,a))
+            'barrier',         # log(1-b(o,a))
             'r',                # r(o,a)
             'c',                # c(o,a)
             'ret',              # sum_t r_t  (undiscounted)
@@ -279,7 +281,7 @@ def eval_metrics(
             'grad_b',
             'grad_sac'
         ]}
-        # ep_metrics = dict(xy=[], b=[], log_term=[], r=[], c=[], ret=[], sum_cost=[], qs=[], q_error=[])
+        # ep_metrics = dict(xy=[], b=[], barrier=[], r=[], c=[], ret=[], sum_cost=[], qs=[], q_error=[])
         ep_ret, ep_cost, ep_len, ep_resamples, ep_interventions = 0.0, 0.0, 0, 0, 0
         obs, _ = env.reset()
 
@@ -293,7 +295,7 @@ def eval_metrics(
             # Get log(1-b)
             # act = act.reshape(-1, act.shape[-1])
             with torch.no_grad():
-                log_term = agent.binary_critic.barrier_penalty(obs, act, cfgs.algo_cfgs.barrier_type)
+                barrier = agent.binary_critic.barrier_penalty(obs, act, cfgs.algo_cfgs.barrier_type)
                 qs = agent.reward_critic(obs, act)
 
             pi1_norm, b_norm = gradients_loss_pi(agent, cfgs, obs, act)
@@ -321,13 +323,13 @@ def eval_metrics(
                 pass
                 # print(f'terminated: {terminated.item()}\ntruncated: {truncated.item()}')
             # Convert values to np.arrays and save into metrics.
-            b, log_term, reward, cost, qs = (
+            b, barrier, reward, cost, qs = (
                 np.asarray(x, dtype=np.float32)
-                for x in (b, log_term, reward, cost, qs)
+                for x in (b, barrier, reward, cost, qs)
             )
             # Save trajectory in dictionary
             ep_metrics['b'].append(b)
-            ep_metrics['log_term'].append(log_term)
+            ep_metrics['barrier'].append(barrier)
             ep_metrics['r'].append(reward)
             ep_metrics['c'].append(cost)
             ep_metrics['qs'].append(qs)
@@ -356,7 +358,7 @@ def eval_metrics(
 
 
 def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], sampled_positions: torch.Tensor | None,
-                     num_eps: int = 3) -> plt.Figure:
+                     num_eps: int = 3, cfgs=None) -> plt.Figure:
     """
 
     Args:
@@ -445,17 +447,18 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
             t_cross = get_safety_crossovers(c)  # crossing times
             for t in t_cross:
                 ax.axvline(t, c='darkgrey', linewidth=1)
-        ax.plot(np.arange(len(grad_b)), grad_b, label=r'$\nabla_{\phi}\log(1-b^\theta(s_t,a_t))$')
-        ax.plot(np.arange(len(grad_b)), grad_sac, label=r'$\nabla_{\phi}\mathcal{L}_{SAC}$')
+        ax.plot(np.arange(len(grad_b)), grad_b, label=r'$\|\nabla_{\phi}\mathcal{L}_{B}\|$')
+        ax.plot(np.arange(len(grad_b)), grad_sac, label=r'$\|\nabla_{\phi}\mathcal{L}_{SAC}\|$')
         ax.legend()
         ax.set_yscale('log')
         # ax.axhline(.5, c='k', linestyle='--')
         if i == 0:
-            ax.set_title(r"Gradient contributions for actor network")
+            ax.set_title(r"Gradients for $\mathcal{L}_\pi$; barrier="
+                         + str(cfgs.algo_cfgs.barrier_type))
 
 
         # Plot histograms
-        log_penalty = ep_metric.get('log_term')
+        log_penalty = ep_metric.get('barrier')
         if single_out:
             # b values
             ax = axs[i, 4]
@@ -574,7 +577,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
             ax.set_title(r'$q(s,a)$) per step')
 
         # q + penalty
-        log_penalty = ep_metric.get('log_term')
+        log_penalty = ep_metric.get('barrier')
         ax = axs[i, 7]
         scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
         if i == 0:
@@ -587,7 +590,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
     # Add the horizontal line
     # fig.add_artist(plt.Line2D((0, 1), (divider_y, divider_y), color='black', linewidth=2))
     # Get the aggregate data for the histogram plots
-    hist_keys = ['b', 'log_term', 'q_error']
+    hist_keys = ['b', 'barrier', 'q_error']
     agg = {k: np.concatenate([ep.get(k) for ep in list_of_metrics]) for k in hist_keys
            }
 
@@ -597,7 +600,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
     ax.axvline(.5, c='k', linestyle='--')
     # penalty
     ax = axs[i, 5]
-    plot_histogram(agg.get('log_term'), ax, color='chocolate')
+    plot_histogram(agg.get('barrier'), ax, color='chocolate')
     # errors in q-estimates
     ax = axs[i, 8]
     mean_error = agg.get('q_error').mean()
@@ -717,7 +720,7 @@ if __name__ == '__main__':
                 episodes = 10
                 metrics = eval_metrics(env, episodes, actor_critic, gamma, evaluator._cfgs)
                 # print(f'robots position is {evaluator._robot_pos}')
-                fig = plot_all_metrics(metrics, evaluator._robot_pos)
+                fig = plot_all_metrics(metrics, evaluator._robot_pos, cfgs=evaluator._cfgs)
 
                 save_dir = os.path.join(evaluator._save_dir, 'eval_metrics/')
                 os.makedirs(save_dir, exist_ok=True)
