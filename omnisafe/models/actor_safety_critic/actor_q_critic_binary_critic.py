@@ -105,14 +105,11 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         self.axiomatic_dataset = None
 
         self.action_criterion = model_cfgs.action_criterion  # whether to take 'safest' or 'first safe' action
-        # self.setup_compute_safety_idx(criterion=model_cfgs.safety_index_criterion)
 
         self._low, self._high, = self.actor.act_space.low, self.actor.act_space.high
         self._act_dim = self.actor._act_dim
 
-        # Check whether to act in a 'safe' or 'most_uncertain' manner.
-        # self.how_to_act = 'safe'
-        # self.how_to_act = model_cfgs.binary_critic.how_to_act
+        # Whether to 'filter out' unsafe actions or not
         self.setup_step_method(filter_actions=model_cfgs.filter_actions)
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
@@ -511,48 +508,10 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 num_resamples = torch.Tensor([0.0])
             return a, safety_val, num_resamples
 
-
         if filter_actions:
             setattr(self, 'step', self.pick_safe_action)
         else:
             setattr(self, 'step', vanilla_step)
-
-
-    # def pick_uncertain_action(obs: torch.Tensor, deterministic: bool = False, ) -> tuple[torch.Tensor, ...]:
-    #     """
-    #     Picks the most uncertain action possible (the one with value closest to 0.5)
-    #
-    #     Args:
-    #         obs (torch.tensor): The observation from environments.
-    #         deterministic (bool, optional): Whether to use the actors' deterministic action (i.e. mean of gaussian).
-    #         criterion (str): (Update 05/08/24)
-    #                         'first' or 'safest'. 'first' selects the first action that was deemed safe, 'safest' grabs
-    #                          the safest one among all the sampled ones.
-    #
-    #     Returns:
-    #         a: A candidate safe action, or the safest action among the samples.
-    #         safety_val: the safety index (between 0 (safe) and 1 (unsafe)).
-    #         num_resamples: the number of resamples done before a safe action was found.
-    #     """
-    #     batch_size = obs.shape[0]  # B
-    #     # Repeat the observation to feed to the actor; original obs is (B, O)
-    #     repeated_obs = self.repeat_obs(obs, self.cost_critic.max_resamples)  # (B*R, O)
-    #     with torch.no_grad():
-    #         # Get the actions
-    #         a = self.actor.predict(repeated_obs, deterministic=deterministic).to(self.device)  # (B*R, A)
-    #         # Assess their safety
-    #         safety_val = self.cost_critic.assess_safety(obs=repeated_obs, a=a).reshape(batch_size,  # (B, R)
-    #                                                                                    self.cost_critic.max_resamples)
-    #
-    #     most_uncertain = torch.argmin(torch.abs(safety_val - 0.5), dim=-1)  # (B, ) Get the action closest to 0.5
-    #
-    #     a = a.view(batch_size, self.cost_critic.max_resamples, -1)  # (B, R, A)
-    #     a = a[torch.arange(batch_size), most_uncertain]  # (B, A)
-    #
-    #     safety_val = safety_val[torch.arange(batch_size), most_uncertain]
-    #     num_resamples = self.cost_critic.max_resamples * torch.ones_like(safety_val)
-    #
-    #     return a, safety_val, num_resamples
 
     @staticmethod
     def repeat_obs(obs, num_repeat):

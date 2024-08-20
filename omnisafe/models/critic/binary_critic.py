@@ -156,7 +156,7 @@ class BinaryCritic(Critic):
         Args:
             obs (torch.tensor): The observation from environments.
             a (torch.tensor): The candidate action by the actor.
-            average (bool):
+            average (bool): whether to average the result. This is useful if there is more than one critic.
 
         Returns:
             safety_index (torch.tensor): a value in [0, 1], denoting how unsafe the action is.

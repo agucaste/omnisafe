@@ -313,6 +313,8 @@ class SACBinaryCritic(SAC):
             # if miss_rate <= self._cfgs.algo_cfgs.binary_critic_max_miss_rate:
             #     self_consistent = True
             #     break
+        # 08/19/24: one full-pass over the axiomatic data.
+        self._actor_critic.train_from_axiomatic_dataset(self._cfgs, self._logger, epochs=1)
         return
 
     def _update_binary_critic(self, obs: torch.Tensor, act: torch.Tensor,
