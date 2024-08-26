@@ -137,6 +137,8 @@ class SACBinaryCritic(SAC):
         self._logger.register_key('Metrics/TestNumResamples', window_length=50)
         self._logger.register_key('Metrics/TestNumInterventions', window_length=50)
 
+        self._logger.register_key('Metrics/BinaryCriticResets')
+
         self._logger.register_key('Loss/Loss_pi/grad_sac')
         self._logger.register_key('Loss/Loss_pi/grad_barrier')
         self._logger.register_key('Loss/Loss_pi/grad_total')
@@ -246,7 +248,11 @@ class SACBinaryCritic(SAC):
                 'Classifier/Power': 0.0,
                 'Classifier/Miss_rate': 0.0,
                 # 'Classifier/per_step_epochs': 0.0,
-            },
+                'Loss/Loss_pi/grad_sac': 0.0,
+                'Loss/Loss_pi/grad_barrier': 0.0,
+                'Loss/Loss_pi/grad_total': 0.0,
+                'Loss/binary_critic_axiomatic': 0.0,
+        },
         )
         if self._cfgs.algo_cfgs.auto_alpha:
             self._logger.store(
@@ -376,7 +382,7 @@ class SACBinaryCritic(SAC):
 
         if self._cfgs.algo_cfgs.use_critic_norm:
             for param in self._actor_critic.binary_critic.parameters():
-                loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coef
+                loss += param.pow(2).sum() * self._cfgs.algo_cfgs.critic_norm_coeff
 
         # print(f'Binary critic loss is {loss:.4f}')
         if torch.isnan(loss):

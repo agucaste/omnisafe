@@ -53,7 +53,7 @@ defaults:
     # max gradient norm
     max_grad_norm: 40
     # use critic norm
-    use_critic_norm: False
+    use_critic_norm: True  # False
     # critic norm coefficient
     critic_norm_coeff: 0.001
     # The soft update coefficient
@@ -90,7 +90,7 @@ defaults:
     binary_critic_max_epochs: 1  # 100
     # whether to use 'hard' or 'soft' labels to train the binary critic.
     bc_training_labels: soft
-    # barrier type: either 'log', 'filtered-log' or 'hyperbolic'
+    # barrier type: either 'log', 'filtered-log', 'hyperbolic' or `proportional`
     barrier_type: proportional
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
     bc_training: off-policy

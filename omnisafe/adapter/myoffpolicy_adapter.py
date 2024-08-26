@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 import torch
+from torch import optim
 
 from omnisafe.adapter.online_adapter import OnlineAdapter
 from omnisafe.common.buffer import VectorOffPolicyBuffer
@@ -76,6 +77,9 @@ class MyOffPolicyAdapter(OnlineAdapter):
         self._unwrapped_env = unwrap_env(self._env)
         self._task = self._unwrapped_env.task
         self._robot = self._task.agent
+
+        # 08/23/24: Option to 'reset' binary critic if an unsafe (s,a) is found.
+        self._binary_resets = 0
 
     def eval_policy(  # pylint: disable=too-many-locals
         self,
@@ -156,10 +160,26 @@ class MyOffPolicyAdapter(OnlineAdapter):
             real_next_obs = next_obs.clone()
             for idx, done in enumerate(torch.logical_or(terminated, truncated)):
                 if done:
+                    # 08/23/24: Check to see if the binary critic should be reset
+                    if next_b >= .5:
+                        print(f'Resetting binary critic because found a starting state with b={next_b}')
+                        # Perform optimistic initialization
+                        agent.optimistic_initialization(self._cfgs, logger)
+                        # Hard reset of optimizer
+                        if self._cfgs.model_cfgs.critic.lr is not None:
+                            agent.binary_critic_optimizer = optim.Adam(
+                                self.binary_critic.parameters(),
+                                lr=self._cfgs.model_cfgs.binary_critic.lr,
+                            )
+
+                        self._binary_resets += 1
+
                     if 'final_observation' in info:
                         real_next_obs[idx] = info['final_observation'][idx]
                     self._log_metrics(logger, idx)
                     self._reset_log(idx)
+
+
 
             # 08/08/24: get robot's position
             pos = torch.asarray(self._robot.pos[0:2], dtype=torch.float32).unsqueeze(0)
@@ -224,7 +244,8 @@ class MyOffPolicyAdapter(OnlineAdapter):
                 'Metrics/EpCost': self._ep_cost[idx],
                 'Metrics/EpLen': self._ep_len[idx],
                 'Metrics/NumResamples': self._num_resamples[idx],
-                'Metrics/NumInterventions': self._num_interventions[idx]
+                'Metrics/NumInterventions': self._num_interventions[idx],
+                'Metrics/BinaryCriticResets': self._binary_resets
             },
         )
 

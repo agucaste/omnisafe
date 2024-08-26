@@ -98,7 +98,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
             self.binary_critic_optimizer: optim.Optimizer
             self.binary_critic_optimizer = optim.Adam(
                 self.binary_critic.parameters(),
-                lr=model_cfgs.critic.lr,
+                lr=model_cfgs.binary_critic.lr,
             )
 
         self.device = torch.device('cpu')  # to be overwritten (if needed) by init_axiomatic_dataset
@@ -193,7 +193,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.binary_critic.parameters():
-                        loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef
+                        loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coeff
 
                 loss.backward()
 
@@ -282,7 +282,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.binary_critic.parameters():
-                        loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef
+                        loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coeff
 
                 loss.backward()
 
