@@ -164,7 +164,9 @@ class MyOffPolicyAdapter(OnlineAdapter):
                     if next_b >= .5:
                         print(f'Resetting binary critic because found a starting state with b={next_b}')
                         # Perform optimistic initialization
-                        agent.optimistic_initialization(self._cfgs, logger)
+                        agent.initialize_binary_critic(self, self._cfgs, logger)
+
+                        # agent.optimistic_initialization(self._cfgs, logger)
                         # Hard reset of optimizer
                         if self._cfgs.model_cfgs.critic.lr is not None:
                             agent.binary_critic_optimizer = optim.Adam(

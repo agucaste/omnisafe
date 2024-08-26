@@ -470,7 +470,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
             ax = axs[i, 5]
             plot_histogram(log_penalty, ax, color='chocolate')
             if i == 0:
-                ax.set_title(r'Histogram of $\log(1-b^\theta(s,a))$')
+                ax.set_title(r'Histogram of (penalty) $B^\theta(s,a)$')
 
             # errors in q-estimates
             ax = axs[i, 8]
@@ -502,7 +502,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         for t in t_cross:
             ax.axvline(t, c='darkgrey', linewidth=1)
         if i == 0:
-            ax.set_title(r'$q^\theta(s,a) + \log(1-b^\theta(s,a))$) per step')
+            ax.set_title(r'$q^\theta(s,a) + B^\theta(s,a)$) per step')
         return
 
 
@@ -581,7 +581,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         ax = axs[i, 7]
         scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
         if i == 0:
-            ax.set_title(r'$q^\theta(s,a) + \log(1-b^\theta(s,a))$) per step')
+            ax.set_title(r'$q^\theta(s,a) + B^\theta(s,a)$) per step')
 
 
     # fig_height = fig.get_size_inches()[1]
