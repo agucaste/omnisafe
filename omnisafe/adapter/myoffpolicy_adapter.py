@@ -170,7 +170,7 @@ class MyOffPolicyAdapter(OnlineAdapter):
                         # Hard reset of optimizer
                         if self._cfgs.model_cfgs.critic.lr is not None:
                             agent.binary_critic_optimizer = optim.Adam(
-                                self.binary_critic.parameters(),
+                                agent.binary_critic.parameters(),
                                 lr=self._cfgs.model_cfgs.binary_critic.lr,
                             )
 
