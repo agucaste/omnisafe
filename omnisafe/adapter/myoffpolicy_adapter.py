@@ -163,17 +163,23 @@ class MyOffPolicyAdapter(OnlineAdapter):
                     # 08/23/24: Check to see if the binary critic should be reset
                     if next_b >= .5:
                         print(f'Resetting binary critic because found a starting state with b={next_b}')
-                        # Perform optimistic initialization
-                        agent.initialize_binary_critic(self, self._cfgs, logger)
-
-                        # agent.optimistic_initialization(self._cfgs, logger)
-                        # Hard reset of optimizer
-                        if self._cfgs.model_cfgs.critic.lr is not None:
-                            agent.binary_critic_optimizer = optim.Adam(
-                                agent.binary_critic.parameters(),
-                                lr=self._cfgs.model_cfgs.binary_critic.lr,
-                            )
-
+                        agent.reset_binary_critic(buffer, self._cfgs)
+                        # # Perform optimistic initialization in 3 steps
+                        # # 1) Clear the optimizer
+                        # del agent.binary_critic_optimizer
+                        # if self._cfgs.model_cfgs.binary_critic.lr is not None:
+                        #     agent.binary_critic_optimizer = optim.Adam(
+                        #         agent.binary_critic.parameters(),
+                        #         lr=self._cfgs.model_cfgs.binary_critic.lr,
+                        #     )
+                        # # 2) initialize binary critic (axiomatic data + optimistic + target bc)
+                        # agent.initialize_binary_critic(self, self._cfgs, logger)
+                        # # 3) Reset the optimizer
+                        # if self._cfgs.model_cfgs.binary_critic.lr is not None:
+                        #     agent.binary_critic_optimizer = optim.Adam(
+                        #         agent.binary_critic.parameters(),
+                        #         lr=self._cfgs.model_cfgs.binary_critic.lr,
+                        #     )
                         self._binary_resets += 1
 
                     if 'final_observation' in info:
