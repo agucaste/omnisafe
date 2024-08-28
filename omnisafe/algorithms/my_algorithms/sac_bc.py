@@ -195,6 +195,7 @@ class SACBinaryCritic(SAC):
         q1_value_r, q2_value_r = self._actor_critic.reward_critic(obs, action)
         loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
         barrier = self._actor_critic.binary_critic.barrier_penalty(obs, action, self._cfgs.algo_cfgs.barrier_type)
+        barrier *= 10
 
         # print(f'loss has shape {loss.shape}, and sum {loss.sum()}')
         # print(f'barrier has shape {barrier.shape}, and sum {barrier.sum()}')
@@ -210,8 +211,6 @@ class SACBinaryCritic(SAC):
 
         # print(f'loss has shape {loss.shape}, and sum {loss.sum()}')
         # print(f'barrier has shape {barrier.shape}, and sum {barrier.sum()}')
-
-
         return (loss - barrier).mean()
 
     def _get_policy_gradient(self, loss: torch.Tensor) -> float:

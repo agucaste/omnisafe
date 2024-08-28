@@ -336,7 +336,7 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         """
         # Reset optimizer
         del self.binary_critic_optimizer
-        if self._cfgs.model_cfgs.binary_critic.lr is not None:
+        if cfgs.model_cfgs.binary_critic.lr is not None:
             self.binary_critic_optimizer = optim.Adam(
                 self.binary_critic.parameters(),
                 lr=cfgs.model_cfgs.binary_critic.lr,
