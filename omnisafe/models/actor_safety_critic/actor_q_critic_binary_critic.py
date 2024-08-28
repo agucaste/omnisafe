@@ -355,8 +355,8 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
             batch_size=cfgs.algo_cfgs.batch_size,
             shuffle=True,
         )
-        for _ in epochs:
-            for o, a, y in self.axiomatic_dataset:
+        for _ in trange(epochs):
+            for o, a, y in dataloader:
                 self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
                 values = self.binary_critic.assess_safety(o, a)
