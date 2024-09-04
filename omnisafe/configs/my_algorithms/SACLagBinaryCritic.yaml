@@ -231,7 +231,7 @@ SafetyPointCircle1-v0:
     # Initial value of lagrangian multiplier
     lagrangian_multiplier_init: 0.000
     # Learning rate of lagrangian multiplier
-    lambda_lr: 0.001
+    lambda_lr: 0.0002
     # Type of lagrangian optimizer
     lambda_optimizer: "Adam"
 

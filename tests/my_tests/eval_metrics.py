@@ -654,7 +654,7 @@ task = env._env.task
 robot = task.agent
 geoms = env._env.task._geoms
 
-BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/SACBinaryCritic-{SafetyPointCircle1-v0}/'
+BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/SACLagBinaryCritic-{SafetyPointCircle1-v0}/'
 #  seed-000-2024-07-08-11-14-55'
 
 

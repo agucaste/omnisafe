@@ -308,8 +308,9 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         plt.ylabel('ocurrences')
         plt.title(f'Fraction of {count_safe/samples:.2f} safe samples along SxA when training with '
                   f'|Dsafe|={cfgs.model_cfgs.binary_critic.axiomatic_data.o}x{cfgs.model_cfgs.binary_critic.axiomatic_data.a}')
-        plot_fp = logger._log_dir + '/histogram_classification.pdf'
-        plt.savefig(plot_fp)
+        if logger is not None:
+            plot_fp = logger._log_dir + '/histogram_classification.pdf'
+            plt.savefig(plot_fp)
         plt.close()
         return
 
@@ -344,6 +345,10 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
         # Copy the state dictionary to revert to it later
         default_dict = self.binary_critic_optimizer.state_dict()
 
+        # Run sgd over uniform samples
+        self.optimistic_initialization(cfgs)
+        self.binary_critic_optimizer.load_state_dict(default_dict)
+
         # Train on the dataset of current transitions and label them all as 'safe'
         data = buffer.get()
         obs, act = data['obs'], data['act']
@@ -374,12 +379,12 @@ class ActorQCriticBinaryCritic(ConstraintActorQCritic):
                 distributed.avg_grads(self.binary_critic)
                 self.binary_critic_optimizer.step()
 
-        # Copy the target critic
-        # Sync parameters with binary_critics
         del self.target_binary_critic
         self.target_binary_critic = deepcopy(self.binary_critic)
         for param in self.target_binary_critic.parameters():
             param.requires_grad = False
+
+        # Reset the optimizer
         self.binary_critic_optimizer.load_state_dict(default_dict)
         return
 
