@@ -201,12 +201,12 @@ class SACBinaryCritic(SAC):
         # print(f'barrier has shape {barrier.shape}, and sum {barrier.sum()}')
         # print(f'barrier is {barrier}')
 
-        grad_sac = self._get_policy_gradient(loss)
-        grad_b = self._get_policy_gradient(-barrier)
-        grad = self._get_policy_gradient(loss-barrier)
-        self._logger.store({'Loss/Loss_pi/grad_sac': grad_sac,
-                            'Loss/Loss_pi/grad_barrier': grad_b,
-                            'Loss/Loss_pi/grad_total': grad})
+        # grad_sac = self._get_policy_gradient(loss)
+        # grad_b = self._get_policy_gradient(-barrier)
+        # grad = self._get_policy_gradient(loss-barrier)
+        # self._logger.store({'Loss/Loss_pi/grad_sac': grad_sac,
+        #                     'Loss/Loss_pi/grad_barrier': grad_b,
+        #                     'Loss/Loss_pi/grad_total': grad})
 
 
         # print(f'loss has shape {loss.shape}, and sum {loss.sum()}')
@@ -215,12 +215,13 @@ class SACBinaryCritic(SAC):
 
     def _get_policy_gradient(self, loss: torch.Tensor) -> float:
         """
+        Given a loss, returns the squared L2 norm of the gradient of that loss w.r.t. policy parameters.
 
         Args:
-            loss ():
+            loss (Tensor): the loss for a mini-batch of size B. Note this is a (B, ) tensor.
 
         Returns:
-
+            Squared norm of the gradient
         """
         loss.mean().backward(retain_graph=True)
         grad_norm = 0.
@@ -228,10 +229,9 @@ class SACBinaryCritic(SAC):
             if param.grad is not None:
                 param_norm = param.grad.data.norm(2)
                 grad_norm += param_norm.item() ** 2
-                param.grad.detach_()
-                param.grad.zero_()
-        # grad_norm = grad_norm ** 0.5
-        # self._actor_critic.actor_optimizer.zero_grad()
+                # param.grad.detach_()
+                # param.grad.zero_()
+        self._actor_critic.actor_optimizer.zero_grad()
         # print(f' grad norm is {grad_norm}')
         return grad_norm
 
