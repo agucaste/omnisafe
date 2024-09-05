@@ -169,6 +169,12 @@ class MyOffPolicyAdapter(OnlineAdapter):
                                        self._cfgs.train_cfgs.total_steps // self._cfgs.algo_cfgs.steps_per_epoch,)
                         agent.initialize_binary_critic(env=self, cfgs=self._cfgs, logger=logger)
 
+                        logger._what_to_save.update({
+                            'pi': agent.actor,
+                            'binary_critic': agent.binary_critic,
+                            'reward_critic': agent.reward_critic,
+                        })
+
                         # agent.reset_binary_critic(buffer, self._cfgs)
                         # # Perform optimistic initialization in 3 steps
                         # # 1) Clear the optimizer
