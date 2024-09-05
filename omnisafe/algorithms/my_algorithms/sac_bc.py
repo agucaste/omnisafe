@@ -294,7 +294,7 @@ class SACBinaryCritic(SAC):
 
             if self._update_count >= self._cfgs.algo_cfgs.bc_start:
                 if self._update_count % self._cfgs.algo_cfgs.bc_delay == 0:
-                    self._update_binary_critic_until_consistency(obs, act, cost, next_obs)
+                    self._update_binary_critic_until_consistency(obs, act, cost, next_obs, reward)
 
             if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
                 self._update_actor(obs)
@@ -303,7 +303,7 @@ class SACBinaryCritic(SAC):
 
         return
 
-    def _update_binary_critic_until_consistency(self, obs, act, cost, next_obs):
+    def _update_binary_critic_until_consistency(self, obs, act, cost, next_obs, reward):
         """Updates the binary critic until self-consistency.
         Copied from method from trpo_penalty_binary_critic
         """
@@ -311,7 +311,7 @@ class SACBinaryCritic(SAC):
         # for epoch in track(range(self._cfgs.algo_cfgs.binary_critic_max_epochs),
         #                    description='Updating binary critic...'):
         for epoch in range(self._cfgs.algo_cfgs.binary_critic_max_epochs):
-            self._update_binary_critic(obs, act, next_obs, cost)
+            self._update_binary_critic(obs, act, next_obs, cost, reward)
             # metrics = self._actor_critic.classifier_metrics(obs, act, next_obs, cost,
             #                                                 operator=self._cfgs.model_cfgs.operator)
             # miss_rate = metrics['miss_rate'].item()
@@ -323,7 +323,7 @@ class SACBinaryCritic(SAC):
         return
 
     def _update_binary_critic(self, obs: torch.Tensor, act: torch.Tensor,
-                              next_obs: torch.Tensor, cost: torch.Tensor) -> None:
+                              next_obs: torch.Tensor, cost: torch.Tensor, reward: torch.Tensor) -> None:
         r"""Update value network under a double for loop.
 
         The loss function is ``MSE loss``, which is defined in ``torch.nn.MSELoss``.
@@ -370,7 +370,26 @@ class SACBinaryCritic(SAC):
 
         # 07/17/24: If using prioritized experience replay, update the priority values
         if self._cfgs.algo_cfgs.prioritized_experience_replay:
-            self._buf.update_tree_values(values - labels)
+            if self._cfgs.algo_cfgs.priority_scheme == 'td':
+                self._buf.update_tree_values(values - labels)
+            elif self._cfgs.algo_cfgs.priority_scheme == 'sum_td':
+                with torch.no_grad():
+                    # compute td errors for q estimates
+                    next_action = self._actor_critic.actor.predict(next_obs, deterministic=False)
+                    next_logp = self._actor_critic.actor.log_prob(next_action)
+                    next_q1, next_q2 = self._actor_critic.target_reward_critic(
+                        next_obs,
+                        next_action,
+                    )
+                    next_q = torch.min(next_q1, next_q2) - next_logp * self._alpha
+
+                    target_q = reward + self._cfgs.algo_cfgs.gamma * next_q
+
+                    q1, q2 = self._actor_critic.reward_critic(obs, act)
+                    q = torch.min(q1, q2)
+
+                    priority = torch.abs((q - target_q) / (q + 1e-8)) + torch.abs(values-labels)
+
 
         # 07/05/24
         # Regress each binary critic towards the consensus label.
