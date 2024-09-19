@@ -1,3 +1,4 @@
+import pandas as pd
 import torch
 import numpy as np
 import math
@@ -247,7 +248,10 @@ def eval_metrics(
         while not done:
             t += 1
             # Choose action and compute b(o,a)
-            act = agent.predict(obs, deterministic=True)
+            try:
+                act = agent.predict(obs, deterministic=True)
+            except TypeError:
+                act = agent.predict(obs)
 
             xy = get_robot_pos(robot)
             ep_metrics['xy'].append(xy)
@@ -287,6 +291,9 @@ def eval_metrics(
         # Get the total return and cost
         ep_metrics['ret'] = ep_ret
         ep_metrics['sum_cost'] = ep_cost
+        # Get the discounted return
+        ret_gamma = discount_cumsum(torch.Tensor(ep_metrics['r']), gamma)
+        ep_metrics['gamma_ret'] = ret_gamma[0]
         list_of_metrics.append(ep_metrics)
     return list_of_metrics
 
@@ -330,15 +337,22 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], a
 
         # ax.set_title(r'Trajectories')
 
-
-    agg_rets = np.stack([ep['ret'] for ep in list_of_metrics])
+    keys = ['ret', 'gamma_ret']
+    agg = {k: np.stack([ep[k] for ep in list_of_metrics]) for k in keys}
     # Undiscounted return
     ax = axs[1, col]
-    mean_error = agg_rets.mean()
-    plot_histogram(agg_rets, ax, color='goldenrod', log_y=False)
+    mean_error = agg['ret'].mean()
+    plot_histogram(agg['ret'], ax, color='goldenrod', log_y=False)
     ax.axvline(mean_error, c='darkgoldenrod', linewidth=3)
     ax.set_ylabel(fr'mean = {mean_error:.1f}')
     ax.set_title('Episode returns')
+    # Discounted return
+    ax = axs[2, col]
+    mean_error = agg['gamma_ret'].mean()
+    plot_histogram(agg['gamma_ret'], ax, color='goldenrod', log_y=False)
+    ax.axvline(mean_error, c='darkgoldenrod', linewidth=3)
+    ax.set_ylabel(fr'mean = {mean_error:.1f}')
+    ax.set_title('Discounted episode returns')
     return
 
 
@@ -353,6 +367,56 @@ def get_safety_crossovers(c: np.ndarray) -> np.ndarray:
         indices: an array with the corresponding crossover indices.
     """
     return np.where(np.diff(c) != 0)[0] + 1
+
+
+class KNNRegressor:
+    def __init__(self, k: int, o: np.ndarray, a: np.ndarray):
+        self.k = k
+        self.data = {'o': o,  # (o - o.min(axis=0)) / (o.max(axis=0) - o.min(axis=0)),  # (o - o.mean(axis=0)) / o.std(axis=0),  # re-scaled observations
+                     'a': a
+                     }
+
+        # p_dims: dimensions to keep
+
+        o_min = o.min(axis=0)
+        o_max = o.max(axis=0)
+        self.dims = np.where(np.abs(o_min - o_max) > 1e-6)
+
+        # Re-scale the data in the dimensions s.t. max is different than min
+        self.data['o'][:, self.dims] = (o[:, self.dims] - o_min[self.dims]) / (o_max[self.dims] - o_min[self.dims])
+
+        # o_max = np.where(o_max > 0, o_max, 1)
+        self.o_stats = {'min': o_min, 'max': o_max}
+        print(f"obsevation stats:\nmin: {self.o_stats['min']}\nmax: {self.o_stats['max']}")
+        print(f'max-min: \n{o_max - o_min}')
+
+    def pre_process(self, x):
+        min = np.zeros_like(x)
+        max = np.ones_like(x)
+        min[self.dims] = self.o_stats['min'][self.dims]
+        max[self.dims] = self.o_stats['max'][self.dims]
+
+        # min = self.o_stats['min']
+        # max = self.o_stats['max']
+        return (x - min) / (max - min)
+
+    def predict(self, x):
+        # normalize the test point
+        x = self.pre_process(x.numpy())
+        # Compute distances  TODO: use a faster sorting scheme!!!!
+        # print(f'x is {x}\nx has shape {x.shape}')
+        d = np.linalg.norm(x-self.data['o'], axis=1)
+        # print(f'd has size {d.shape}')
+        # Sort the array and keep k smallest
+        i = np.argsort(d)[:self.k]
+        # Return the mean of the first k actions
+        a = self.data['a'][i].mean(axis=0)
+        # print(f' a is {a}')
+        return torch.as_tensor(a, dtype=torch.float32)
+
+
+
+
 
 
 
@@ -373,13 +437,12 @@ BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/' \
 
 if __name__ == '__main__':
     import os
-    from argparse import ArgumentParser
     from omnisafe.evaluator import Evaluator
 
     experiment_path = BASE_DIR
     print(f'Opening experiment in {experiment_path}')
 
-
+    # Opening saved policy
     evaluator = Evaluator(render_mode='rgb_array')
     evaluator.load_saved(
         save_dir=experiment_path,
@@ -388,17 +451,25 @@ if __name__ == '__main__':
         width=256,
         height=256,
     )
+    save_dir = os.path.join(evaluator._save_dir, 'eval_metrics/')
+    os.makedirs(save_dir, exist_ok=True)
 
     env = evaluator._env
     actor_critic = evaluator._actor
     gamma = evaluator._cfgs.algo_cfgs.gamma
 
-    episodes = 1000
+    # Collect data from saved policy
+    episodes = 5
     metrics = eval_metrics(env, episodes, actor_critic, gamma, evaluator._cfgs)
 
 
+    # Plot distribution of norms for saved policy.
     obs = np.array([ep.get('o') for ep in metrics])
     a = np.array([ep.get('a') for ep in metrics])
+
+    # Save dataset
+    os.makedirs(save_dir + '/knn/', exist_ok=True)
+    torch.save({'obs': o, 'a': a}, save_dir + f'/knn/expert_data_{episodes}_eps.pt')
 
     dim_o, dim_a = obs.shape[-1], a.shape[-1]
     obs = obs.reshape(-1, dim_o)  # eliminate 1st dimension
@@ -429,13 +500,34 @@ if __name__ == '__main__':
 
 
 
-
-
-    save_dir = os.path.join(evaluator._save_dir, 'eval_metrics/')
-    os.makedirs(save_dir, exist_ok=True)
-    plt.suptitle(f'Distribution of obs/actions for Expert policy')
+    plt.suptitle(r'Distribution of observations & actions; Expert policy')
     plt.tight_layout()
-    plt.savefig(save_dir + f'knn_hist_{episodes}.png', dpi=200)
+    plt.savefig(save_dir + f'knn_hist{episodes}.png', dpi=200)
+    plt.close()
+
+
+
+
+    # Build different k-nn regressors and test them
+    knn_episodes = 10
+    neighbors = [1, 5, 10, 15, 20]
+
+    nrows = 3  # trajectories / returns / discounted returns
+    ncols = len(neighbors)
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 4, nrows * 3))  # , sharex=True, sharey=True)
+
+    knn = KNNRegressor(k=neighbors[0], o=obs, a=a)
+    for (i, k) in enumerate(neighbors):
+        print(f'\nEvaluating {k}-NN...')
+        knn.k = k  # Change neighbor
+        # Collect data from saved policy
+        metrics = eval_metrics(env, knn_episodes, knn, gamma, evaluator._cfgs)
+        plot_all_metrics(metrics, axs, i)
+        axs.flatten()[i].set_title(f'{k}-NN')
+
+    plt.suptitle(f'k-NN policies (evaluated for {knn_episodes} episodes); expert data from {episodes} episodes')
+    plt.tight_layout()
+    plt.savefig(save_dir + f'/knn/eval_{episodes}.png', dpi=200)
     plt.close()
 
     # scan_dir.close()

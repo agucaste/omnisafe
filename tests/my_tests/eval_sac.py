@@ -344,7 +344,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], a
     plot_histogram(agg['gamma_ret'], ax, color='goldenrod', log_y=False)
     ax.axvline(mean_error, c='darkgoldenrod', linewidth=3)
     ax.set_ylabel(fr'mean = {mean_error:.1f}')
-    ax.set_title('Episode returns')
+    ax.set_title('Discounted episode returns')
     return
 
 

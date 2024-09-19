@@ -6,11 +6,9 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import LineCollection
-from matplotlib.ticker import FuncFormatter
 
 from omnisafe.adapter import MyOffPolicyAdapter
 from omnisafe.envs.core import make
-from omnisafe import Agent
 from omnisafe.models.actor_safety_critic import ActorQCriticBinaryCritic
 from omnisafe.utils.math import discount_cumsum
 
@@ -51,28 +49,6 @@ def colored_line(x: list | np.ndarray, y: list | np.ndarray, c: list | np.ndarra
     matplotlib.collections.LineCollection
         The generated line collection representing the colored line.
     """
-    # if "array" in lc_kwargs:
-    #     warnings.warn('The provided "array" keyword argument will be overridden')
-    #
-    # # Default the capstyle to butt so that the line segments smoothly line up
-    # default_kwargs = {"capstyle": "butt"}
-    # default_kwargs.update(lc_kwargs)
-    #
-    # # Compute the midpoints of the line segments. Include the first and last points
-    # # twice so we don't need any special syntax later to handle them.
-    # x = np.asarray(x)
-    # y = np.asarray(y)
-    # x_midpts = np.hstack((x[0], 0.5 * (x[1:] + x[:-1]), x[-1]))
-    # y_midpts = np.hstack((y[0], 0.5 * (y[1:] + y[:-1]), y[-1]))
-    #
-    # coord_start = np.column_stack((x_midpts[:-1], y_midpts[:-1]))[:, np.newaxis, :]
-    # coord_mid = np.column_stack((x, y))[:, np.newaxis, :]
-    # coord_end = np.column_stack((x_midpts[1:], y_midpts[1:]))[:, np.newaxis, :]
-    # segments = np.concatenate((coord_start, coord_mid, coord_end), axis=1)
-    #
-    # lc = LineCollection(segments[:-1], **default_kwargs)  # avoid last point (connecting end with beginning)
-    # lc.set_array(c)  # set the colors of each segment
-    # ax.set_facecolor('white')
     def _make_segments(x, y):
         """
         Create list of line segments from x and y coordinates, in the correct format
@@ -87,27 +63,21 @@ def colored_line(x: list | np.ndarray, y: list | np.ndarray, c: list | np.ndarra
     if isinstance(cmap, str):
         cmap = plt.get_cmap(cmap)
 
-    # z = c / c.max()  # #np.linspace(0.0, 1.0, len(x))
     colors = [cmap(i) for i in c]
-    # print(f' colors are {colors}')
+
 
     segments = _make_segments(x, y)
     linewidths = 2 if 'linewidths' not in lc_kwargs.keys() else lc_kwargs['linewidths']
     lc = LineCollection(segments, colors=colors, linewidths=linewidths)
 
     ax.add_collection(lc)
-    # ax.set_xlim(xy_range)
-    # ax.set_ylim(xy_range)
     ax.set_facecolor('white')
-    # fig = plt.gcf()
-    # fig.colorbar(lc)
 
     if add_colorbar:
         norm = plt.Normalize(0, len(x))
         # Create ScalarMappable for the colorbar
         sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])  # Required for the colorbar
-
         # Add the colorbar to the figure
         cbar = plt.colorbar(sm, ax=ax)
 
@@ -139,7 +109,7 @@ def plot_layout(geometries, ax: mpl.axes.Axes):
 
 def unwrap_env(env):
     """
-    Unwraps an environment, so as to
+    Unwraps an environment, getting to the base one.
     Args:
         env (MyOffPolicyAdapter): The environment
 
@@ -170,7 +140,6 @@ def plot_histogram(data, ax, cmap: Optional[str] = None, color: Optional[str] = 
 
     """
     if color is not None:
-        # Plotting log-unsafety
         n, bins, patches = ax.hist(data, bins=50, color=color)
     else:
         assert cmap is not None
@@ -217,17 +186,11 @@ def eval_metrics(
 
     def gradients_loss_pi(agent: ActorQCriticBinaryCritic, cfgs, obs: torch.Tensor, action: torch.Tensor):
 
-        # Re-taing the action (this allows for gradient computation)
+        # Re-taking the action (this allows for gradient computation)
         action = agent.actor.predict(obs, deterministic=False)
         log_prob = agent.actor.log_prob(action)
         q1_value_r, q2_value_r = agent.reward_critic(obs, action)
         loss = cfgs.algo_cfgs.alpha * log_prob - torch.min(q1_value_r, q2_value_r)
-
-        # if cfgs.algo_cfgs.barrier_type == 'log':
-        #     barrier = actor_critic.binary_critic.log_assess_safety(obs, action)
-        # elif cfgs.algo_cfgs.barrier_type == 'hyperbolic':
-        #     barrier = agent.binary_critic.hyperbolic_assess_safety(obs, action)
-
         loss.backward(retain_graph=True)
 
         pi1_norm = 0
@@ -241,15 +204,11 @@ def eval_metrics(
         pi1_norm = pi1_norm ** 0.5
 
 
-        # x = torch.stack(agent.binary_critic.forward(obs=obs, act=action))
-        # log_safety = -x + torch.nn.functional.logsigmoid(x)
-        # log_safety.backward()
         barrier = agent.binary_critic.barrier_penalty(obs, action, barrier_type=cfgs.algo_cfgs.barrier_type)
         barrier.backward()
 
         # Compute the norm of the gradient
         b_norm = 0
-        # for name, param in agent.binary_critic.named_parameters():
         for name, param in agent.actor.named_parameters():
             if param.grad is not None:
                 param_norm = param.grad.data.norm(2)
@@ -260,8 +219,9 @@ def eval_metrics(
         # print(f'b norm is {b_norm}')
         return pi1_norm, b_norm
 
-
-
+    """
+    Function begins here
+    """
     base_env = unwrap_env(env)
     task = base_env.task
     robot = task.agent
@@ -281,7 +241,6 @@ def eval_metrics(
             'grad_b',
             'grad_sac'
         ]}
-        # ep_metrics = dict(xy=[], b=[], barrier=[], r=[], c=[], ret=[], sum_cost=[], qs=[], q_error=[])
         ep_ret, ep_cost, ep_len, ep_resamples, ep_interventions = 0.0, 0.0, 0, 0, 0
         obs, _ = env.reset()
 
@@ -289,11 +248,8 @@ def eval_metrics(
         t = 0
         while not done:
             t += 1
-            # obs = obs.reshape(-1, obs.shape[-1])
             # Choose action and compute b(o,a)
             act, b, num_resamples = agent.step(obs, deterministic=False)
-            # Get log(1-b)
-            # act = act.reshape(-1, act.shape[-1])
             with torch.no_grad():
                 barrier = agent.binary_critic.barrier_penalty(obs, act, cfgs.algo_cfgs.barrier_type)
                 qs = agent.reward_critic(obs, act)
@@ -317,11 +273,9 @@ def eval_metrics(
             ep_len += 1
             ep_resamples += int(num_resamples)
             ep_interventions += int(num_resamples > 0)
-            # done = bool(terminated[0].item()) or bool(truncated[0].item())
             done = bool(terminated.item()) or bool(truncated.item())
             if done:
                 pass
-                # print(f'terminated: {terminated.item()}\ntruncated: {truncated.item()}')
             # Convert values to np.arrays and save into metrics.
             b, barrier, reward, cost, qs = (
                 np.asarray(x, dtype=np.float32)
@@ -369,14 +323,23 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         Figure with ...
 
     """
+
+    def set_limits(ax: mpl.axes.Axes, x: float, y: float, r: float):
+        """Set consistent limits and aspect ratio for an axis."""
+        x_lims = min(min(x), -r), max(max(x), r)
+        y_lims = min(min(y), -r), max(max(y), r)
+        ax.set_xlim(x_lims)
+        ax.set_ylim(y_lims)
+        ax.set_aspect('equal')
+
     def plot_row(ep_metric: dict[str, np.ndarray], axs: mpl.axes.Axes, row: str, single_out: bool, **kwargs):
         """
 
         Args:
-            ep_metric ():
-            axs ():
-            row ():
-            single_out ():
+            ep_metric (dict): dictionary containing the episode metrics
+            axs (Axes): the matplotlib axis
+            row (str): which row of the axis to plot in.
+            single_out (bool): whether to plot a single episode or all the episodes.
 
         Returns:
 
@@ -393,13 +356,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
             ax.set_ylabel(rf"sum_r = {ep_metric.get('ret'):.1f}; $G_0^\gamma$ = {ep_metric.get('gamma_ret'):.1f}")
         # Get plot limits.
         r = geoms.get('circle').radius + .1
-        x_lims = min(min(x), -r), max(max(x), r)
-        y_lims = min(min(y), -r), max(max(y), r)
-
-        ax.set_xlim(x_lims)
-        ax.set_ylim(y_lims)
-
-        ax.set_aspect('equal')
+        set_limits(ax, x, y, r)
         if i == 0:
             ax.set_title('Trajectories')
 
@@ -413,9 +370,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         fig.colorbar(sc, ax=ax, cmap=cmap)
         if single_out:
             ax.set_ylabel(rf"sum_cost = {ep_metric.get('sum_cost'):.0f}")
-        ax.set_xlim(x_lims)
-        ax.set_ylim(y_lims)
-        ax.set_aspect('equal')
+        set_limits(ax, x, y, r)
         if i == 0:
             ax.set_title(r'$b^\theta(s,a)$ along trajectory')
 
@@ -507,13 +462,10 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
 
 
     # Main code
-    # plt.style.use('bmh')
     total_eps = len(list_of_metrics)
     assert total_eps >= num_eps
-
     # Pick at random which episodes to show
     ep_ixs = np.random.choice(range(total_eps), size=num_eps, replace=False)
-
     cmap = plt.get_cmap('RdBu_r')
 
     # one row for each episode, plus extra row for aggregate metrics
@@ -544,15 +496,9 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
                              cmap='cool', linewidths=linewidths, add_colorbar=last_ep)
         if last_ep:
             plot_layout(geoms, ax)
-            # ax.set_ylabel(rf"sum_r = {ep_metric.get('ret'):.1f}; $G_0^\gamma$ = {ep_metric.get('gamma_ret'):.1f}")
             # Get plot limits.
             r = geoms.get('circle').radius + .1
-            x_lims = min(min(x), -r), max(max(x), r)
-            y_lims = min(min(y), -r), max(max(y), r)
-
-            ax.set_xlim(x_lims)
-            ax.set_ylim(y_lims)
-            ax.set_aspect('equal')
+            set_limits(ax, x, y, r)
 
         b = ep_metric.get('b')
         ax = axs[i, 1]
@@ -560,9 +506,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         if last_ep:
             plot_layout(geoms, ax)
             fig.colorbar(sc, ax=ax, cmap=cmap)
-            ax.set_xlim(x_lims)
-            ax.set_ylim(y_lims)
-            ax.set_aspect('equal')
+            set_limits(ax, x, y, r)
 
         ax = axs[i, 2]
 
@@ -642,23 +586,7 @@ def get_safety_crossovers(c: np.ndarray) -> np.ndarray:
     return np.where(np.diff(c) != 0)[0] + 1
 
 
-
-
-
-ALGO = 'SACBinaryCritic'
-ENV_ID = 'SafetyPointCircle1-v0'
-ALGO_TYPE = 'my_algorithms'
-env = make(ENV_ID, num_envs=1)  # , device=torch.device('cpu'))
-o, _ = env.reset()
-task = env._env.task
-robot = task.agent
-geoms = env._env.task._geoms
-
-BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/SACLagBinaryCritic-{SafetyPointCircle1-v0}/'
-#  seed-000-2024-07-08-11-14-55'
-
-
-def path_to_experiments(base_dir: str = BASE_DIR, sub_string: str | None = None) -> list[str]:
+def path_to_experiments(base_dir: str, sub_string: str | None = None) -> list[str]:
     """
     Given a base directory, finds all the directories inside it that contain a given sub string.
     Args:
@@ -684,6 +612,17 @@ def path_to_experiments(base_dir: str = BASE_DIR, sub_string: str | None = None)
             print(dir)
     return dirs
 
+
+ALGO = 'SACBinaryCritic'
+ENV_ID = 'SafetyPointCircle1-v0'
+ALGO_TYPE = 'my_algorithms'
+env = make(ENV_ID, num_envs=1)  # , device=torch.device('cpu'))
+o, _ = env.reset()
+task = env._env.task
+robot = task.agent
+geoms = env._env.task._geoms
+
+BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/SACLagBinaryCritic-{SafetyPointCircle1-v0}/'
 
 if __name__ == '__main__':
     import os
