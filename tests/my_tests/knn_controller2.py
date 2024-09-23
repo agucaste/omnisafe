@@ -520,7 +520,7 @@ if __name__ == '__main__':
 
 
     # Build different k-nn regressors and test them
-    knn_episodes = 20
+    knn_episodes = 10
     neighbors = [1, 5, 10, 15, 20]
 
     nrows = 3  # trajectories / returns / discounted returns
@@ -533,12 +533,12 @@ if __name__ == '__main__':
         knn.k = k  # Change neighbor
         # Collect data from saved policy
         metrics = eval_metrics(env, knn_episodes, knn, gamma, evaluator._cfgs)
-        plot_all_metrics(metrics, axs, i, expert_stats=expert_stats)
+        plot_all_metrics(metrics, axs, i, expert_ret=expert_ret)
         axs.flatten()[i].set_title(f'{k}-NN')
 
     plt.suptitle(f'k-NN policies (evaluated for {knn_episodes} episodes); expert data from {episodes} episodes')
     plt.tight_layout()
-    plt.savefig(save_dir + f'/knn/eval_{knn_episodes}_expert_{episodes}.png', dpi=200)
+    plt.savefig(save_dir + f'/knn/eval_{episodes}.png', dpi=200)
     plt.close()
 
     # scan_dir.close()
