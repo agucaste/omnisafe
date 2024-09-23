@@ -267,11 +267,6 @@ class SACBinaryCritic(SAC):
         # 3. Update the network by loss.
         # 4. Repeat steps 2, 3 until the ``update_iters`` times.
 
-        # When training of binary critic starts, swap action_criterion for 'safest'
-        # if self._update_count == self._cfgs.algo_cfgs.bc_start:
-        #     self._actor_critic.action_criterion = self._cfgs.model_cfgs.action_criterion
-        #     print(f"Swapping to '{self._actor_critic.action_criterion}' action criterion")
-
         for _ in range(self._cfgs.algo_cfgs.update_iters):
             data = self._buf.sample_batch()
             self._update_count += 1
@@ -345,9 +340,7 @@ class SACBinaryCritic(SAC):
         """
 
         self._actor_critic.binary_critic_optimizer.zero_grad()
-        # Im adding this
         values = self._actor_critic.binary_critic.assess_safety(obs, act)
-        # print(f'values is {values} of shape {values.shape}')
 
         with torch.no_grad():
             if self._cfgs.algo_cfgs.bc_training == 'off-policy':
@@ -366,7 +359,6 @@ class SACBinaryCritic(SAC):
                 raise (ValueError, "binary critic's labelling should be either 'soft' or 'hard', not"
                                    f"{self._actor_critic.algo_cfgs.bc_training_labels}")
         labels = torch.maximum(labels, cost).clamp_max(1)
-        # print(f'soft_labels are {soft_labels} of shape {soft_labels.shape}')
 
         # 07/17/24: If using prioritized experience replay, update the priority values
         if self._cfgs.algo_cfgs.prioritized_experience_replay:
@@ -433,12 +425,6 @@ class SACBinaryCritic(SAC):
                 'Classifier/Miss_rate': metrics['miss_rate'].item()
             },
         )
-
-
-        # if self._cfgs.algo_cfgs.prioritized_experience_replay:
-        #     values = self._actor_critic.binary_critic.assess_safety(obs, act)
-        #     next_values = self._actor_critic.binary_critic.assess_safety(next_obs, next_a)
-        #     self._buf.update_tree_values(values - next_values)
 
 
 class FilteredBCELoss(nn.Module):
