@@ -19,6 +19,11 @@ from typing import Dict, Tuple, Optional
 
 from rich.progress import track
 
+"""
+Difference with knn_controller:
+    this one plots many boxplots where x-axis -> different neighbor,
+    and there is one boxplot for different numbero f trajectories"""
+
 
 def colored_line(x: list | np.ndarray, y: list | np.ndarray, c: list | np.ndarray,
                  cmap: mpl.colors.Colormap | str, ax: mpl.axes.Axes, add_colorbar: bool = True, **lc_kwargs):
@@ -463,82 +468,121 @@ if __name__ == '__main__':
     actor_critic = evaluator._actor
     gamma = evaluator._cfgs.algo_cfgs.gamma
 
+
     # Collect data from saved policy
-    episodes = 5
-    metrics = eval_metrics(env, episodes, actor_critic, gamma, evaluator._cfgs)
-
-    # Get expert statistics
-    keys = ['ret', 'gamma_ret']
-    expert_stats = {key: np.mean([ep.get(key) for ep in metrics]) for key in keys}
-
-
-
-
-    # Plot distribution of norms for saved policy.
-    obs = np.array([ep.get('o') for ep in metrics])
-    a = np.array([ep.get('a') for ep in metrics])
-
-    # Save dataset
-    os.makedirs(save_dir + '/knn/', exist_ok=True)
-    torch.save({'obs': o, 'a': a}, save_dir + f'/knn/expert_data_{episodes}_eps.pt')
-
-    dim_o, dim_a = obs.shape[-1], a.shape[-1]
-    obs = obs.reshape(-1, dim_o)  # eliminate 1st dimension
-    a = a.reshape(-1, dim_a)
-
-    o_means = obs.mean(axis=0)
-    a_means = a.mean(axis=0)
-
-    # Plot distribution of observations/actions in each dimension.
-    nrows, ncols = 6, 5
-    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 4, nrows * 3))
-
-    axs = axs.flatten()
-    # Observations
-    for dim in range(dim_o):
-        ax = axs[dim]
-        plot_histogram(obs[:, dim], ax, color='gray', log_y=True)
-        ax.axvline(o_means[dim], c='black', linewidth=3)
-        ax.set_ylabel(fr'mean = {o_means[dim]:.1f}')
-        ax.set_title(r"$\mathcal{O}$" + f"({str(dim)})")
-    # Actions
-    for dim in range(dim_a):
-        ax = axs[dim_o + dim]
-        plot_histogram(a[:, dim], ax, color='tomato', log_y=True)
-        ax.axvline(a_means[dim], c='indianred', linewidth=3)
-        ax.set_ylabel(fr'mean = {a_means[dim]:.1f}')
-        ax.set_title(r"$\mathcal{A}$" + f"({str(dim)})")
-
-
-
-    plt.suptitle(r'Distribution of observations & actions; Expert policy')
-    plt.tight_layout()
-    plt.savefig(save_dir + f'knn_hist{episodes}.png', dpi=200)
-    plt.close()
-
-
-
-
-    # Build different k-nn regressors and test them
-    knn_episodes = 10
+    E = [1, 2, 5, 10]
+    # E = [1, 2]
+    # how many neighbors to consider
     neighbors = [1, 5, 10, 15, 20]
+    # neighbors = [1, 2]
 
-    nrows = 3  # trajectories / returns / discounted returns
-    ncols = len(neighbors)
-    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 4, nrows * 3))  # , sharex=True, sharey=True)
+    nrows = len(E)
+    ncols = 1
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 14, nrows * 3))  # , sharex=True, sharey=True)
+    for (row, episodes) in enumerate(E):
+        ax = axs.flatten()[row]
+        metrics = eval_metrics(env, episodes, actor_critic, gamma, evaluator._cfgs)
 
-    knn = KNNRegressor(k=neighbors[0], o=obs, a=a)
-    for (i, k) in enumerate(neighbors):
-        print(f'\nEvaluating {k}-NN...')
-        knn.k = k  # Change neighbor
-        # Collect data from saved policy
-        metrics = eval_metrics(env, knn_episodes, knn, gamma, evaluator._cfgs)
-        plot_all_metrics(metrics, axs, i, expert_ret=expert_ret)
-        axs.flatten()[i].set_title(f'{k}-NN')
+        # Get expert statistics
+        keys = ['ret', 'gamma_ret']
+        expert_stats = {key: np.mean([ep.get(key) for ep in metrics]) for key in keys}
 
-    plt.suptitle(f'k-NN policies (evaluated for {knn_episodes} episodes); expert data from {episodes} episodes')
+
+
+
+        # Plot distribution of norms for saved policy.
+        obs = np.array([ep.get('o') for ep in metrics])
+        a = np.array([ep.get('a') for ep in metrics])
+
+        # Save dataset
+        os.makedirs(save_dir + '/knn/', exist_ok=True)
+        torch.save({'obs': o, 'a': a}, save_dir + f'/knn/expert_data_{episodes}_eps.pt')
+
+        dim_o, dim_a = obs.shape[-1], a.shape[-1]
+        obs = obs.reshape(-1, dim_o)  # eliminate 1st dimension
+        a = a.reshape(-1, dim_a)
+
+        # o_means = obs.mean(axis=0)
+        # a_means = a.mean(axis=0)
+        #
+        # # Plot distribution of observations/actions in each dimension.
+        # nrows, ncols = 6, 5
+        # fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 4, nrows * 3))
+        #
+        # axs = axs.flatten()
+        # # Observations
+        # for dim in range(dim_o):
+        #     ax = axs[dim]
+        #     plot_histogram(obs[:, dim], ax, color='gray', log_y=True)
+        #     ax.axvline(o_means[dim], c='black', linewidth=3)
+        #     ax.set_ylabel(fr'mean = {o_means[dim]:.1f}')
+        #     ax.set_title(r"$\mathcal{O}$" + f"({str(dim)})")
+        # # Actions
+        # for dim in range(dim_a):
+        #     ax = axs[dim_o + dim]
+        #     plot_histogram(a[:, dim], ax, color='tomato', log_y=True)
+        #     ax.axvline(a_means[dim], c='indianred', linewidth=3)
+        #     ax.set_ylabel(fr'mean = {a_means[dim]:.1f}')
+        #     ax.set_title(r"$\mathcal{A}$" + f"({str(dim)})")
+        #
+        #
+        #
+        # plt.suptitle(r'Distribution of observations & actions; Expert policy')
+        # plt.tight_layout()
+        # plt.savefig(save_dir + f'knn_hist{episodes}.png', dpi=200)
+        # plt.close()
+
+
+
+
+        # Build different k-nn regressors and test them
+        knn_episodes = 50
+
+        # fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 4, nrows * 3))  # , sharex=True, sharey=True)
+
+
+        knn = KNNRegressor(k=neighbors[0], o=obs, a=a)
+        rets = []
+        gamma_rets = []
+        for (i, k) in enumerate(neighbors):
+            print(f'\nEvaluating {k}-NN...')
+            knn.k = k  # Change neighbor
+            # Collect data from saved policy
+            metrics = eval_metrics(env, knn_episodes, knn, gamma, evaluator._cfgs)
+            # plot_all_metrics(metrics, axs, i, expert_stats=expert_stats)
+            # Plot boxplot
+            rets.append(np.array([ep.get('ret') for ep in metrics]))
+            # gamma_rets.append(np.array([ep.get('gamma_ret') for ep in metrics]))
+            # bp1 = plt.boxplot(stats['assured']['dmg'].values(), patch_artist=True,
+            #                   positions=np.array([0, 1, 2]) - 0.175,
+            #                   boxprops=dict(color='k', facecolor='C0', alpha=.7), medianprops=dict(color='k'),
+            #                   showmeans=True)
+
+            # axs.flatten()[i].set_title(f'{k}-NN')
+
+        rets = np.array(rets)
+        print(f'returns are {rets}\n of shape {rets.shape}')
+        bp1 = ax.boxplot(rets.T, patch_artist=True, positions=np.arange(len(neighbors)),
+                         boxprops=dict(color='k', facecolor='C0', alpha=.7), medianprops=dict(color='k'),
+                          showmeans=True)
+        # bp1 = ax.boxplot(rets)
+        ax.axhline(expert_stats['ret'], c='k', linestyle='--')
+        # plt.show()
+
+        # for i, line in enumerate(bp1['means']):
+        #     _, y = line.get_xydata()[0]
+        #     x, _ = bp1['medians'][i].get_xydata()[1]
+        #     text = r' $\mu$ = {:.2f}'.format(np.mean(stats['standard']['dmg'][stats.get('episodes')[i]]))
+        #     ax.annotate(text, xy=(x, y), fontsize=8)
+
+        ax.set_xticks(np.arange(len(neighbors)))
+        ax.set_xticklabels(neighbors)
+        ax.set_ylabel('Return')
+        ax.set_xlabel('Neighbors')
+
+        ax.set_title(f'k-NN policies ({knn_episodes} episodes); {episodes} expert trajectories')
     plt.tight_layout()
-    plt.savefig(save_dir + f'/knn/eval_{episodes}.png', dpi=200)
+    plt.savefig(save_dir + f'/knn/expert_boxplot.png', dpi=200)
     plt.close()
 
     # scan_dir.close()
