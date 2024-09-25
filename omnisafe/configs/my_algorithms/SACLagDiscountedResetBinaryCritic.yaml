@@ -1,0 +1,266 @@
+# Copyright 2023 OmniSafe Team. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+defaults:
+  # seed for random number generator
+  seed: 0
+  # training configurations
+  train_cfgs:
+    # device to use for training, options: cpu, cuda, cuda:0, cuda:0,1, etc.
+    device: cpu
+    # number of threads for torch
+    torch_threads: 16
+    # number of vectorized environments
+    vector_env_nums: 1
+    # number of parallel agent, similar to a3c
+    parallel: 1
+    # total number of steps to train
+    total_steps: 600000  # 2000000
+    # number of evaluate episodes
+    eval_episodes: 1
+  # algorithm configurations
+  algo_cfgs:
+    # number of steps to update the policy
+    steps_per_epoch: 2000
+    # number of steps per sample
+    update_cycle: 1
+    # number of iterations to update the policy
+    update_iters: 1
+    # The size of replay buffer
+    size: 1000000
+    # The size of batch
+    batch_size: 256
+    # normalize reward
+    reward_normalize: False
+    # normalize cost
+    cost_normalize: False
+    # normalize observation
+    obs_normalize: False
+    # use max gradient norm
+    use_max_grad_norm: True
+    # max gradient norm
+    max_grad_norm: 40
+    # use critic norm
+    use_critic_norm: False
+    # critic norm coefficient
+    critic_norm_coeff: 0.001
+    # The soft update coefficient
+    polyak: 0.005
+    polyak_binary: 1
+    # The discount factor of GAE
+    gamma: 0.99
+    # The discount factor for the Binary Critic
+    gamma_bc: 0.99
+    # Actor performs random action before `start_learning_steps` steps
+    start_learning_steps: 10000
+    # The delay step of policy update
+    policy_delay: 2
+    # Whether to use the exploration noise
+    use_exploration_noise: False
+    # The exploration noise
+    exploration_noise: 0.1
+    # The policy noise
+    policy_noise: 0.2
+    # policy_noise_clip
+    policy_noise_clip: 0.5
+    # The value of alpha
+    alpha: 0.2
+    # Whether to use auto alpha
+    auto_alpha: False
+    # use cost
+    use_cost: False
+    # warm up epoch
+    warmup_epochs: -1  # 100
+    # ----------------------
+    # Binary critic thingies
+    # ----------------------
+    # start training the binary critic after these many steps
+    bc_start: 0  # 400_000
+    # train binary_critic every these many steps
+    bc_delay: 1
+    # the maximum number of epochs for binary critic update
+    binary_critic_max_epochs: 1  # 100
+    # whether to use 'hard' or 'soft' labels to train the binary critic.
+    bc_training_labels: soft
+    # barrier type: either 'log', 'filtered-log', 'hyperbolic' or `proportional`
+    barrier_type: proportional
+    # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
+    bc_training: off-policy
+    # Whether to use P.E.R., resampling transitions closer to the classification boundary.
+    prioritized_experience_replay: False
+    # PER hyperparameters
+    per_alpha: 0.5
+    per_epsilon: 0.0001
+    # Reset epoch
+    reset_epoch: [10, 50, 100]
+
+  # logger configurations
+  logger_cfgs:
+    # use wandb for logging
+    use_wandb: True
+    # wandb project name
+    wandb_project: omnisafe
+    # use tensorboard for logging
+    use_tensorboard: True
+    # save model frequency
+    save_model_freq: 10
+    # save logger path
+    log_dir: "./runs"
+    # save model path
+    window_lens: 10
+  # model configurations
+  model_cfgs:
+    # weight initialization mode
+    weight_initialization_mode: "kaiming_uniform"
+    # actor type
+    actor_type: gaussian_sac
+    # linear learning rate decay
+    linear_lr_decay: False
+    # Binary critic parameters
+    # Maximum resampling for binary critic network
+    max_resamples: 100
+    # Action criterion: either take 'safest' action or 'first_safe'
+    action_criterion: safest
+    # If true, samples many actions (following the actor) and picks safest one.
+    filter_actions: False
+    # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
+    operator: inequality
+    # Configuration of Actor network
+    actor:
+      # Size of hidden layers
+      hidden_sizes: [256, 256]
+      # Activation function
+      activation: relu
+      # The learning rate of Actor network
+      lr: 0.0003
+    # Configuration of Critic network
+    critic:
+      # The number of critic networks
+      num_critics: 2
+      # Size of hidden layers
+      hidden_sizes: [256, 256]
+      # Activation function
+      activation: relu
+      # The learning rate of Critic network
+      lr: 0.0003
+    # The binary critic
+    binary_critic:
+      num_critics: 1  # 3
+      hidden_sizes: [ 256, 256 ]
+      activation: tanh
+      lr: 0.001
+      # The axiomatic dataset
+      axiomatic_data:
+        o: 10
+        a: 5
+        epochs: 100
+      # Samples for optimistic initialization
+      init_samples: 20_000
+  # lagrangian configurations
+  lagrange_cfgs:
+    # Tolerance of constraint violation
+    cost_limit: 25.0
+    # Initial value of lagrangian multiplier
+    lagrangian_multiplier_init: 0.001
+    # Learning rate of lagrangian multiplier
+    lambda_lr: 0.00001
+    # Type of lagrangian optimizer
+    lambda_optimizer: "Adam"
+
+
+
+SafetyCarCircle1-v0:
+  # algorithm configurations
+  algo_cfgs:
+    # The value of alpha
+    alpha: 0.00001
+  # model configurations
+  model_cfgs:
+    # Configuration of Actor network
+    actor:
+      # The learning rate of Actor network
+      lr: 0.000005
+    # Configuration of Critic network
+    critic:
+      # The learning rate of Critic network
+      lr: 0.001
+
+SafetyCarGoal1-v0:
+  # algorithm configurations
+  algo_cfgs:
+    # The value of alpha
+    alpha: 0.00001
+  # model configurations
+  model_cfgs:
+    # Configuration of Actor network
+    actor:
+      # The learning rate of Actor network
+      lr: 0.000005
+    # Configuration of Critic network
+    critic:
+      # The learning rate of Critic network
+      lr: 0.001
+
+SafetyPointCircle1-v0:
+  # algorithm configurations
+  algo_cfgs:
+    # The value of alpha
+    alpha: 0.00001
+  # model configurations
+  model_cfgs:
+    # Configuration of Actor network
+    actor:
+      # The learning rate of Actor network
+      lr: 0.000005
+    # Configuration of Critic network
+    critic:
+      # The learning rate of Critic network
+      lr: 0.001
+  # lagrangian configurations
+  lagrange_cfgs:
+    # Tolerance of constraint violation
+    cost_limit: 25.0
+    # Initial value of lagrangian multiplier
+    lagrangian_multiplier_init: 0.000
+    # Learning rate of lagrangian multiplier
+    lambda_lr: 0.0002
+    # Type of lagrangian optimizer
+    lambda_optimizer: "Adam"
+
+SafetyPointGoal1-v0:
+  # algorithm configurations
+  algo_cfgs:
+    # The value of alpha
+    alpha: 0.00001
+  # model configurations
+  model_cfgs:
+    # Configuration of Actor network
+    actor:
+      # The learning rate of Actor network
+      lr: 0.000005
+    # Configuration of Critic network
+    critic:
+      # The learning rate of Critic network
+      lr: 0.001
+  # lagrangian configurations
+  lagrange_cfgs:
+    # Tolerance of constraint violation
+    cost_limit: 25.0
+    # Initial value of lagrangian multiplier
+    lagrangian_multiplier_init: 0.000
+    # Learning rate of lagrangian multiplier
+    lambda_lr: 0.0000005
+    # Type of lagrangian optimizer
+    lambda_optimizer: "Adam"
