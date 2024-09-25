@@ -174,24 +174,6 @@ class MyOffPolicyAdapter(OnlineAdapter):
                             'binary_critic': agent.binary_critic,
                             'reward_critic': agent.reward_critic,
                         })
-
-                        # agent.reset_binary_critic(buffer, self._cfgs)
-                        # # Perform optimistic initialization in 3 steps
-                        # # 1) Clear the optimizer
-                        # del agent.binary_critic_optimizer
-                        # if self._cfgs.model_cfgs.binary_critic.lr is not None:
-                        #     agent.binary_critic_optimizer = optim.Adam(
-                        #         agent.binary_critic.parameters(),
-                        #         lr=self._cfgs.model_cfgs.binary_critic.lr,
-                        #     )
-                        # # 2) initialize binary critic (axiomatic data + optimistic + target bc)
-                        # agent.initialize_binary_critic(self, self._cfgs, logger)
-                        # # 3) Reset the optimizer
-                        # if self._cfgs.model_cfgs.binary_critic.lr is not None:
-                        #     agent.binary_critic_optimizer = optim.Adam(
-                        #         agent.binary_critic.parameters(),
-                        #         lr=self._cfgs.model_cfgs.binary_critic.lr,
-                        #     )
                         self._binary_resets += 1
 
                     if 'final_observation' in info:
