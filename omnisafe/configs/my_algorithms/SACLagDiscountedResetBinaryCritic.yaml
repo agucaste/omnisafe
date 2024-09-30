@@ -136,7 +136,7 @@ defaults:
     # If true, samples many actions (following the actor) and picks safest one.
     filter_actions: False
     # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
-    operator: inequality
+    operator: equality
     # Configuration of Actor network
     actor:
       # Size of hidden layers
@@ -235,7 +235,7 @@ SafetyPointCircle1-v0:
     # Initial value of lagrangian multiplier
     lagrangian_multiplier_init: 0.000
     # Learning rate of lagrangian multiplier
-    lambda_lr: 0.0002
+    lambda_lr: 0.000005
     # Type of lagrangian optimizer
     lambda_optimizer: "Adam"
 
