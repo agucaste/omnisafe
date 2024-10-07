@@ -43,7 +43,7 @@ class SACLagDiscountedResetBinaryCritic(SACLagDiscountedBinaryCritic):
             ---------------------------------------------
             """
 
-            if epoch in self._cfgs.algo_cfgs.reset_epoch:
+            if epoch > 0 and epoch % self._cfgs.algo_cfgs.reset_epoch == 0:
                 self._actor_critic.__init__(self._env.observation_space,
                                self._env.action_space,
                                self._cfgs.model_cfgs,

@@ -104,7 +104,7 @@ defaults:
     per_alpha: 0.5
     per_epsilon: 0.0001
     # Reset epoch
-    reset_epoch: [30, 60, 90, 120, 150, 180, 210, 240, 270, 300]
+    reset_epoch: 50
 
   # logger configurations
   logger_cfgs:
@@ -235,7 +235,7 @@ SafetyPointCircle1-v0:
     # Initial value of lagrangian multiplier
     lagrangian_multiplier_init: 0.000
     # Learning rate of lagrangian multiplier
-    lambda_lr: 0.00005
+    lambda_lr: 0.0002
     # Type of lagrangian optimizer
     lambda_optimizer: "Adam"
 
