@@ -101,6 +101,8 @@ defaults:
     # PER hyperparameters
     per_alpha: 0.5
     per_epsilon: 0.0001
+    # whether to filter out the terms that have b(s,a) < 1/2 in the policy's loss fn
+    filter_lagrangian: True
 
   # logger configurations
   logger_cfgs:
