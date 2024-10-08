@@ -23,6 +23,15 @@ class SACLag2DiscountedResetBinaryCritic(SACLagDiscountedResetBinaryCritic):
         super()._init_log()
         self._logger.register_key('Metrics/TrackingLagrangeMultiplier')
 
+    def _log_when_not_update(self) -> None:
+        """Log default value when not update."""
+        super()._log_when_not_update()
+        self._logger.store(
+            {
+                'Metrics/TrackingLagrangeMultiplier': 0.0,
+            },
+        )
+
 
     def _update(self) -> None:
         """Update actor, critic, as we used in the :class:`PolicyGradient` algorithm.
