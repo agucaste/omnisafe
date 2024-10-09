@@ -198,7 +198,7 @@ class BinaryCritic(Critic):
         elif barrier_type == 'hyperbolic':
             B = -torch.exp(-x)
         elif barrier_type == 'proportional':
-            B = -torch.sigmoid(x)  # * 10
+            B = -torch.sigmoid(x) * (self.assess_safety(obs, a) > 0.5) * 10
         else:
             raise (ValueError, f'barrier_type should be `log`, `filtered-log` or `hyperbolic`, not {barrier_type}')
         return B.mean(dim=0)

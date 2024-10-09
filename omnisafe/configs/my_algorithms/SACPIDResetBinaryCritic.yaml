@@ -62,7 +62,7 @@ defaults:
     # The discount factor of GAE
     gamma: 0.99
     # The discount factor for the Binary Critic
-    gamma_bc: 0.99
+    gamma_bc: 1
     # Actor performs random action before `start_learning_steps` steps
     start_learning_steps: 10000
     # The delay step of policy update
@@ -105,6 +105,8 @@ defaults:
     per_epsilon: 0.0001
     # Reset epoch
     reset_epoch: 50
+    # whether to filter out the terms that have b(s,a) < 1/2 in the policy's loss fn
+    filter_lagrangian: True
 
   # logger configurations
   logger_cfgs:
@@ -170,52 +172,35 @@ defaults:
       init_samples: 20_000
   # lagrangian configurations
   lagrange_cfgs:
+    # The Kp of PID controller
+    pid_kp: 0.000001
+    # The Ki of PID controller
+    pid_ki: 0.0000001
+    # The Kd of PID controller
+    pid_kd: 0.0000001
+    #The delay of PID controller
+    pid_d_delay: 10
+    # The exponential moving average alpha of the proportional term of the PID controller.
+    pid_delta_p_ema_alpha: 0.95
+    # The exponential moving average alpha of the derivative term of the PID controller.
+    pid_delta_d_ema_alpha: 0.95
+    # Whether to normalize the sum of the cost.
+    sum_norm: True
+    # Whether to normalize the derivate of the cost.
+    diff_norm: False
     # Tolerance of constraint violation
     cost_limit: 25.0
+    # The max penalty coefficient
+    penalty_max: 100.0
     # Initial value of lagrangian multiplier
     lagrangian_multiplier_init: 0.001
-    # Learning rate of lagrangian multiplier
-    lambda_lr: 0.00001
-    # Type of lagrangian optimizer
-    lambda_optimizer: "Adam"
 
-
-
-SafetyCarCircle1-v0:
-  # algorithm configurations
-  algo_cfgs:
-    # The value of alpha
-    alpha: 0.00001
-  # model configurations
-  model_cfgs:
-    # Configuration of Actor network
-    actor:
-      # The learning rate of Actor network
-      lr: 0.000005
-    # Configuration of Critic network
-    critic:
-      # The learning rate of Critic network
-      lr: 0.001
-
-SafetyCarGoal1-v0:
-  # algorithm configurations
-  algo_cfgs:
-    # The value of alpha
-    alpha: 0.00001
-  # model configurations
-  model_cfgs:
-    # Configuration of Actor network
-    actor:
-      # The learning rate of Actor network
-      lr: 0.000005
-    # Configuration of Critic network
-    critic:
-      # The learning rate of Critic network
-      lr: 0.001
 
 SafetyPointCircle1-v0:
   # algorithm configurations
   algo_cfgs:
+    # normalize cost
+    cost_normalize: False
     # The value of alpha
     alpha: 0.00001
   # model configurations
@@ -230,37 +215,9 @@ SafetyPointCircle1-v0:
       lr: 0.001
   # lagrangian configurations
   lagrange_cfgs:
-    # Tolerance of constraint violation
-    cost_limit: 25.0
-    # Initial value of lagrangian multiplier
-    lagrangian_multiplier_init: 0.000
-    # Learning rate of lagrangian multiplier
-    lambda_lr: 0.0000005  # 0.0002
-    # Type of lagrangian optimizer
-    lambda_optimizer: "Adam"
-
-SafetyPointGoal1-v0:
-  # algorithm configurations
-  algo_cfgs:
-    # The value of alpha
-    alpha: 0.00001
-  # model configurations
-  model_cfgs:
-    # Configuration of Actor network
-    actor:
-      # The learning rate of Actor network
-      lr: 0.000005
-    # Configuration of Critic network
-    critic:
-      # The learning rate of Critic network
-      lr: 0.001
-  # lagrangian configurations
-  lagrange_cfgs:
-    # Tolerance of constraint violation
-    cost_limit: 25.0
-    # Initial value of lagrangian multiplier
-    lagrangian_multiplier_init: 0.000
-    # Learning rate of lagrangian multiplier
-    lambda_lr: 0.0000005
-    # Type of lagrangian optimizer
-    lambda_optimizer: "Adam"
+    # The Kp of PID controller
+    pid_kp: 0.0000005
+    # The Ki of PID controller
+    pid_ki: 0.00000001
+    # The Kd of PID controller
+    pid_kd: 0.00000001

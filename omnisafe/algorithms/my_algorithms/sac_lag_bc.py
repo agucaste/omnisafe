@@ -63,10 +63,10 @@ class SACLagBinaryCritic(SACBinaryCritic):
         loss = self._alpha * log_prob - torch.min(q1_value_r, q2_value_r)
 
         barrier = self._actor_critic.binary_critic.barrier_penalty(obs, action, self._cfgs.algo_cfgs.barrier_type)
-        if self._cfgs.algo_cfgs.filter_lagrangian:
+        # if self._cfgs.algo_cfgs.filter_lagrangian:
             # Penalization of the form:
             # (b(s,a) - .5)* 1{b(s,a) > .5}
-            barrier = (barrier + .5) * (barrier + .5 < 0)
+            # barrier = (barrier + .5) * (barrier + .5 < 0)
 
         barrier *= self._lagrange.lagrangian_multiplier.item()
 
