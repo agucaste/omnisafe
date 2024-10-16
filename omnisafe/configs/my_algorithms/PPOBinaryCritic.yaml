@@ -84,6 +84,8 @@ defaults:
     bc_training_labels: soft
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
     bc_training: off-policy
+    # in gae, whether v = v*b (soft) or v = v* round(b) (hard)
+    binary_contribution: soft
   # logger configurations
   logger_cfgs:
     # use wandb for logging

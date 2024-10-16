@@ -93,13 +93,15 @@ class PPOBCBuffer(object):  # pylint: disable=too-many-instance-attributes
         lam_c: float,
         advantage_estimator: AdvantageEstimator,
         batch_size: int,
+        binary_contribution: str,
         penalty_coefficient: float = 0,
         standardized_adv_r: bool = False,
         standardized_adv_c: bool = False,
         device: torch.device = DEVICE_CPU,
     ) -> None:
         """Initialize an instance of :class:`OnPolicyBuffer`."""
-        # super().__init__(obs_space, act_space, size, device)
+        self.binary_contribution = binary_contribution
+        assert self.binary_contribution in ['soft', 'hard']
 
         self._on_policy_buffer: OnPolicyBuffer = OnPolicyBuffer(
             obs_space, act_space, size_on,
@@ -169,6 +171,10 @@ class PPOBCBuffer(object):  # pylint: disable=too-many-instance-attributes
         values_c = torch.cat([self._on_policy_buffer.data['value_c'][path_slice], last_value_c])
 
         values_b = torch.cat([self._on_policy_buffer.data['value_b'][path_slice], last_value_b])
+
+        # Rounding or not.
+        values_b = values_b.round() if self.binary_contribution == 'hard' else values_b
+
 
         discounted_ret = discount_cumsum(rewards, self._on_policy_buffer._gamma)[:-1]
         self._on_policy_buffer.data['discounted_ret'][path_slice] = discounted_ret

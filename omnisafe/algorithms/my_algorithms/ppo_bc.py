@@ -32,6 +32,7 @@ class PPOBinaryCritic(PPOLag):
             lam_c=self._cfgs.algo_cfgs.lam_c,
             advantage_estimator=self._cfgs.algo_cfgs.adv_estimation_method,
             batch_size=self._cfgs.algo_cfgs.batch_size,
+            binary_contribution=self._cfgs.algo_cfgs.binary_contribution,
             penalty_coefficient=self._cfgs.algo_cfgs.penalty_coef,
             standardized_adv_r=self._cfgs.algo_cfgs.standardized_rew_adv,
             standardized_adv_c=self._cfgs.algo_cfgs.standardized_cost_adv,
