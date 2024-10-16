@@ -279,7 +279,6 @@ class SACBinaryCritic(SAC):
                 data['next_obs'],
                 data['pos']
             )
-            # print(f'pos is {pos}\n\npos has shape {pos.shape}')
             self._sampled_positions.extend(list(pos))
 
 

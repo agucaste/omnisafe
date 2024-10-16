@@ -87,8 +87,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         self.binary_critic: BinaryCritic = CriticBuilder(
             obs_space=obs_space,
             act_space=act_space,
-            hidden_sizes=model_cfgs.critic.hidden_sizes,
-            activation=model_cfgs.critic.activation,
+            hidden_sizes=model_cfgs.binary_critic.hidden_sizes,
+            activation=model_cfgs.binary_critic.activation,
             weight_initialization_mode=model_cfgs.weight_initialization_mode,
             num_critics=model_cfgs.binary_critic.num_critics,
             use_obs_encoder=False,
@@ -103,14 +103,14 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             self.binary_critic_optimizer: optim.Optimizer
             self.binary_critic_optimizer = optim.Adam(
                 self.binary_critic.parameters(),
-                lr=model_cfgs.critic.lr,
+                lr=model_cfgs.binary_critic.lr,
             )
 
         self.axiomatic_dataset = {}  # TODO: Delete this
         self.device = torch.device('cpu')  # to be overwritten (if needed) by init_axiomatic_dataset
 
         self.action_criterion = model_cfgs.action_criterion  # whether to take 'safest' or 'first safe' action
-        self.setup_compute_safety_idx(criterion=model_cfgs.safety_index_criterion)
+        # self.setup_compute_safety_idx(criterion=model_cfgs.safety_index_criterion)
 
         self._low, self._high, = self.actor.act_space.low, self.actor.act_space.high
         self._act_dim = self.actor._act_dim
@@ -188,8 +188,11 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             for o, a, y in self.axiomatic_dataset:
                 self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
-                values = self.binary_critic.forward(o, a)  # one per binary_critic
-                loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
+                # values = self.binary_critic.forward(o, a)  # one per binary_critic
+                values = self.binary_critic.assess_safety(o, a)
+                # print(f' values are {values}')
+                # loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
+                loss = nn.functional.binary_cross_entropy(values, y)
                 # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.binary_critic.parameters():
@@ -243,6 +246,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         for param in self.target_binary_critic.parameters():
             param.requires_grad = False
         self.binary_critic_optimizer.load_state_dict(default_dict)
+        return
 
     def optimistic_initialization(self, cfgs: Config, logger: Logger):
         """
@@ -274,8 +278,10 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             for o, a, y in dataloader:
                 self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
-                values = self.binary_critic.forward(o, a)  # one per binary_critic
-                loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
+                # values = self.binary_critic.forward(o, a)  # one per binary_critic
+                values = self.binary_critic.assess_safety(o, a)
+                loss = nn.functional.binary_cross_entropy(values, y)
+                # loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
                 # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.binary_critic.parameters():
@@ -301,10 +307,11 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         plt.hist(safety_vals, bins=50)
         plt.xlabel('safety value')
         plt.ylabel('ocurrences')
-        plt.title(f'Fraction of {count_safe/samples:.2f} safe samples along SxA when training with '
+        plt.title(f'Fraction of {count_safe / samples:.2f} safe samples along SxA when training with '
                   f'|Dsafe|={cfgs.model_cfgs.binary_critic.axiomatic_data.o}x{cfgs.model_cfgs.binary_critic.axiomatic_data.a}')
-        plot_fp = logger._log_dir + '/histogram_classification.pdf'
-        plt.savefig(plot_fp)
+        if logger is not None:
+            plot_fp = logger._log_dir + '/histogram_classification.pdf'
+            plt.savefig(plot_fp)
         plt.close()
         return
 
@@ -329,15 +336,13 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         # This avoids problems with a 'final observation'
         with torch.no_grad():
             value_r = self.reward_critic(obs)
-            # value_c = self.binary_critic(obs)
-            action, safety_index, num_resamples = self.pick_safe_action(obs=obs,
-                                                                        deterministic=deterministic)
-            value_c = self.binary_critic.assess_safety(obs, action)
+            value_c = self.cost_critic(obs)
+            action = self.actor.predict(obs, deterministic=deterministic)
+            # action, safety_index, num_resamples = self.pick_safe_action(obs=obs,
+            #                                                             deterministic=deterministic)
+            value_b = self.binary_critic.assess_safety(obs, action)
             log_prob = self.actor.log_prob(action)
-
-        # print(f"action: {action.shape}, value_r:{value_r[0].shape}, safety_index: {safety_index.shape}, resamples={num_resamples.shape}")
-
-        return action, value_r[0], value_c, log_prob, safety_index, num_resamples
+        return action, value_r[0], value_c[0], value_b, log_prob  # safety_index, num_resamples
 
     def forward(
         self,
@@ -434,12 +439,12 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         a = a[torch.arange(batch_size), chosen_idx]  # (B, A)
 
         "05/21/24: computing safety index this way."
-        safety_idx = self.compute_safety_idx(safety_val)
+        safety_val = safety_val[torch.arange(batch_size), chosen_idx]
         # Update 05/12/24:
         # Instead of returning the safety value of the 'taken' action, return the (average) number of
         # 'classified unsafe' actions. This will be fed back to update the _actor_
         # safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
-        return a, safety_idx, num_resamples
+        return a, safety_val, num_resamples
 
     def predict(self, obs: torch.Tensor, deterministic: bool):
         """This function is added for the purpose of the 'evaluator', after training.

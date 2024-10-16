@@ -32,6 +32,8 @@ defaults:
   algo_cfgs:
     # number of steps to update the policy
     steps_per_epoch: 20000
+    # Size of the off-policy buffer
+    size_off_policy_buffer: 1_000_000
     # number of iterations to update the policy
     update_iters: 40
     # batch size for each iteration
@@ -76,6 +78,12 @@ defaults:
     penalty_coef: 0.0
     # use cost
     use_cost: True
+    # polyak coefficient
+    polyak_binary: 1
+    # whether to use 'hard' or 'soft' labels to train the binary critic.
+    bc_training_labels: soft
+    # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
+    bc_training: off-policy
   # logger configurations
   logger_cfgs:
     # use wandb for logging
@@ -118,6 +126,27 @@ defaults:
       activation: tanh
       # learning rate
       lr: 0.0003
+    binary_critic:
+      num_critics: 1
+      hidden_sizes: [ 256, 256 ]
+      activation: tanh
+      lr: 0.001
+      # The axiomatic dataset
+      axiomatic_data:
+        o: 10
+        a: 5
+        epochs: 100
+      # Samples for optimistic initialization
+      init_samples: 20_000
+        # Binary critic parameters
+    # Maximum resampling for binary critic network
+    max_resamples: 100
+    # Action criterion: either take 'safest' action or 'first_safe'
+    action_criterion: safest
+    # If true, samples many actions (following the actor) and picks safest one.
+    filter_actions: False
+    # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
+    operator: inequality
   # lagrangian configurations
   lagrange_cfgs:
     # Tolerance of constraint violation
