@@ -72,6 +72,9 @@ class PPOBCPolicyAdapter(OnlineAdapter):
         self._task = self._unwrapped_env.task
         self._robot = self._task.agent
 
+        # Resets for the binary critic
+        self._binary_resets = 0
+
     def rollout(  # pylint: disable=too-many-locals
         self,
         steps_per_epoch: int,
@@ -155,6 +158,22 @@ class PPOBCPolicyAdapter(OnlineAdapter):
 
                     buffer.finish_path(last_value_r, last_value_c, last_value_b, idx)
 
+
+                    next_a, *_ = agent.step(next_obs, deterministic=False)
+                    next_b = agent.binary_critic.assess_safety(next_obs, next_a)
+                    # print(f'ending epoch with binary critic value {next_b}')
+                    if next_b >= .5:
+                        print(f'Resetting binary critic because found a starting state with b={next_b}')
+
+                        agent.reset_binary_critic(self, buffer, self._cfgs, logger)
+                        # agent.initialize_binary_critic(env=self, cfgs=self._cfgs, logger=logger)
+
+                        logger._what_to_save.update({
+                            'binary_critic': agent.binary_critic,
+
+                        })
+                        self._binary_resets += 1
+
     def _log_value(
         self,
         reward: torch.Tensor,
@@ -190,6 +209,7 @@ class PPOBCPolicyAdapter(OnlineAdapter):
                 'Metrics/EpLen': self._ep_len[idx],
                 # 'Metrics/NumResamples': self._num_resamples[idx],
                 # 'Metrics/NumInterventions': self._num_interventions[idx]
+                'Metrics/BinaryCriticResets': self._binary_resets
             },
         )
 

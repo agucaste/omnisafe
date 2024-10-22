@@ -84,6 +84,8 @@ class PPOBinaryCritic(PPOLag):
         self._logger.register_key('Classifier/Accuracy')
         self._logger.register_key('Classifier/Power')
         self._logger.register_key('Classifier/Miss_rate')
+        self._logger.register_key('Metrics/BinaryCriticResets')
+
         # self._logger.register_key('Classifier/per_step_epochs')
 
         # TODO: Move this to another place! here it's ugly.

@@ -84,8 +84,8 @@ defaults:
     bc_training_labels: soft
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
     bc_training: off-policy
-    # in gae, whether v = v*b (soft) or v = v* round(b) (hard)
-    binary_contribution: soft
+    # in gae, whether v = v*b (soft) or v = v* round(b) (hard) or v = v*relu(b-1/2)
+    binary_contribution: relu
   # logger configurations
   logger_cfgs:
     # use wandb for logging
@@ -132,7 +132,7 @@ defaults:
       num_critics: 1
       hidden_sizes: [ 256, 256 ]
       activation: tanh
-      lr: 0.001
+      lr: 0.0001  # 0.0003
       # The axiomatic dataset
       axiomatic_data:
         o: 10

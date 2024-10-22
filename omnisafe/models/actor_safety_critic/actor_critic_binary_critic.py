@@ -26,6 +26,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch import nn
 from torch.nn.utils.clip_grad import clip_grad_norm_
 
+from omnisafe.common.buffer.ppobc_buffer import PPOBCBuffer
 from omnisafe.models.actor_critic.constraint_actor_critic import ConstraintActorCritic
 from omnisafe.models.base import Critic
 from omnisafe.models.critic.binary_critic import BinaryCritic
@@ -313,6 +314,105 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             plot_fp = logger._log_dir + '/histogram_classification.pdf'
             plt.savefig(plot_fp)
         plt.close()
+        return
+
+    def reset_binary_critic(self, env, buffer: PPOBCBuffer, cfgs: Config, logger):
+        """
+        Resets the binary critic (& target), initializing with "safe" labels for all transitions in the replay buffer.
+        To be called, usually, after encountering a starting state that is classified as unsafe.
+
+        This method does the following:
+            - Reinitializes the optimizer
+            - Fits "safe" labels to transitions in the replay buffer for ~100 epochs
+            - Resets the target binary critic (copies its parameters to the binary critic one)
+
+        Note:
+              - In the paper "The Primacy bias in Deep RL" (arXiv:2205.07802v1) authors argue resetting optimizer's
+                state makes no difference whatsoever (see Fig. 9). We are still doing this, but may not be needed.
+
+        Args:
+            buffer (): The transition buffer. Will only use the (o, a) tuples.
+            cfgs (): Algorithm configurations.
+
+        Returns:
+
+        """
+        # Update 10/17/24:
+        # Doing the reset like this, which amounts to `copying` part of the init method above.
+        del self.binary_critic
+
+        self.binary_critic: BinaryCritic = CriticBuilder(
+            obs_space=env._env.observation_space,
+            act_space=env._env.action_space,
+            hidden_sizes=cfgs.model_cfgs.binary_critic.hidden_sizes,
+            activation=cfgs.model_cfgs.binary_critic.activation,
+            weight_initialization_mode=cfgs.model_cfgs.weight_initialization_mode,
+            num_critics=cfgs.model_cfgs.binary_critic.num_critics,
+            use_obs_encoder=False,
+        ).build_critic('b')
+        # Update the maximum number of resamples.
+        self.binary_critic.max_resamples = cfgs.model_cfgs.max_resamples
+        self.target_binary_critic = None
+
+        self.add_module('binary_critic', self.binary_critic)
+        if cfgs.model_cfgs.critic.lr is not None:
+            self.binary_critic_optimizer: optim.Optimizer
+            self.binary_critic_optimizer = optim.Adam(
+                self.binary_critic.parameters(),
+                lr=cfgs.model_cfgs.binary_critic.lr,
+            )
+        # ----------------------------
+        # Finish of __init__ like part
+        # ----------------------------
+
+        default_dict = self.binary_critic_optimizer.state_dict()
+        self.initialize_binary_critic(env, cfgs, logger)
+
+        # # Copy the state dictionary to revert to it later
+
+        #
+        # # Run sgd over uniform samples
+        # self.optimistic_initialization(cfgs, logger)
+        # self.binary_critic_optimizer.load_state_dict(default_dict)
+
+        # Train on the dataset of current transitions and label them all as 'safe'
+        data = buffer.get_off_data()
+        obs, act = data['obs'], data['act']
+        y = torch.zeros(size=(obs.shape[0],)).to(self.device)
+
+        epochs = cfgs.model_cfgs.binary_critic.axiomatic_data.epochs
+        dataloader = DataLoader(
+            dataset=TensorDataset(obs, act, y),
+            batch_size=cfgs.algo_cfgs.batch_size,
+            shuffle=True,
+        )
+        for _ in trange(epochs):
+            for o, a, y in dataloader:
+                self.binary_critic_optimizer.zero_grad()
+                # Compute bce loss
+                values = self.binary_critic.assess_safety(o, a)
+                loss = nn.functional.binary_cross_entropy(values, y)
+                if cfgs.algo_cfgs.use_critic_norm:
+                    for param in self.binary_critic.parameters():
+                        loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef
+                loss.backward()
+
+                if cfgs.algo_cfgs.use_max_grad_norm:
+                    clip_grad_norm_(
+                        self.binary_critic.parameters(),
+                        cfgs.algo_cfgs.max_grad_norm,
+                    )
+                distributed.avg_grads(self.binary_critic)
+                self.binary_critic_optimizer.step()
+
+
+        del self.target_binary_critic
+        self.target_binary_critic = deepcopy(self.binary_critic)
+        for param in self.target_binary_critic.parameters():
+            param.requires_grad = False
+
+        # Reset the optimizer
+        self.binary_critic_optimizer.load_state_dict(default_dict)
         return
 
     def step(

@@ -101,7 +101,7 @@ class PPOBCBuffer(object):  # pylint: disable=too-many-instance-attributes
     ) -> None:
         """Initialize an instance of :class:`OnPolicyBuffer`."""
         self.binary_contribution = binary_contribution
-        assert self.binary_contribution in ['soft', 'hard']
+        assert self.binary_contribution in ['soft', 'hard', 'relu']
 
         self._on_policy_buffer: OnPolicyBuffer = OnPolicyBuffer(
             obs_space, act_space, size_on,
@@ -173,7 +173,12 @@ class PPOBCBuffer(object):  # pylint: disable=too-many-instance-attributes
         values_b = torch.cat([self._on_policy_buffer.data['value_b'][path_slice], last_value_b])
 
         # Rounding or not.
-        values_b = values_b.round() if self.binary_contribution == 'hard' else values_b
+        if self.binary_contribution == 'hard':
+            values_b = values_b.round() if self.binary_contribution == 'hard' else values_b
+        elif self.binary_contribution == 'soft':
+            pass
+        elif self.binary_contribution == 'relu':
+            values_b = torch.relu(values_b)
 
 
         discounted_ret = discount_cumsum(rewards, self._on_policy_buffer._gamma)[:-1]
@@ -217,6 +222,10 @@ class PPOBCBuffer(object):  # pylint: disable=too-many-instance-attributes
             The data stored and calculated in the buffer.
         """
         return self._on_policy_buffer.get()
+
+    def get_off_data(self) -> dict[str, torch.Tensor]:
+        data = {k: v for (k, v) in self._off_policy_buffer.data.items()}
+        return data
 
     def sample_batch(self) -> dict[str, torch.Tensor]:
         return self._off_policy_buffer.sample_batch()
