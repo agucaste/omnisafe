@@ -109,7 +109,7 @@ class PPOBinaryCritic(PPOLag):
         # Update the binary critic. ->
         # Should be same number batch updates as for the on-policy counterpart.
         for _ in range(self._cfgs.algo_cfgs.update_iters * self._cfgs.algo_cfgs.steps_per_epoch
-                       // self._cfgs.algo_cfgs.batch_size):
+                       // self._cfgs.algo_cfgs.batch_size // self._cfgs.algo_cfgs.binary_critic_delay):
             data = self._buf.sample_batch()
             self._update_count += 1
             obs, act, reward, cost, done, next_obs, pos = (

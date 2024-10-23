@@ -86,6 +86,8 @@ defaults:
     bc_training: off-policy
     # in gae, whether v = v*b (soft) or v = v* round(b) (hard) or v = v*relu(b-1/2)
     binary_contribution: relu
+    # binary critics update delay
+    binary_critic_delay: 10
   # logger configurations
   logger_cfgs:
     # use wandb for logging
