@@ -340,6 +340,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         # Update 10/17/24:
         # Doing the reset like this, which amounts to `copying` part of the init method above.
         del self.binary_critic
+        setattr(self, 'binary_critic', None)
 
         self.binary_critic: BinaryCritic = CriticBuilder(
             obs_space=env._env.observation_space,

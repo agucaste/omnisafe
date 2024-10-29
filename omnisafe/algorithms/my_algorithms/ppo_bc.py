@@ -105,7 +105,6 @@ class PPOBinaryCritic(PPOLag):
         self._logger.torch_save()
 
     def _update(self):
-        super()._update()
         # Update the binary critic. ->
         # Should be same number batch updates as for the on-policy counterpart.
         for _ in range(self._cfgs.algo_cfgs.update_iters * self._cfgs.algo_cfgs.steps_per_epoch
@@ -126,6 +125,9 @@ class PPOBinaryCritic(PPOLag):
 
         # if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
         self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak_binary)
+
+        # Update the actor & reward/cost critics.
+        super()._update()
 
     def _update_binary_critic(self, obs: torch.Tensor, act: torch.Tensor,
                               next_obs: torch.Tensor, cost: torch.Tensor, reward: torch.Tensor) -> None:
@@ -150,7 +152,7 @@ class PPOBinaryCritic(PPOLag):
         """
 
         self._actor_critic.binary_critic_optimizer.zero_grad()
-        values = self._actor_critic.binary_critic.assess_safety(obs, act)
+        values = self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
 
         with torch.no_grad():
             if self._cfgs.algo_cfgs.bc_training == 'off-policy':
@@ -174,7 +176,7 @@ class PPOBinaryCritic(PPOLag):
         # Regress each binary critic towards the consensus label.
         FBCE = FilteredBCELoss(operator=self._cfgs.model_cfgs.operator)
         loss = sum(
-            FBCE(pred, labels) for pred in self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
+            FBCE(pred, labels) for pred in values   # self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
         )
 
         if self._cfgs.algo_cfgs.use_critic_norm:
@@ -195,6 +197,9 @@ class PPOBinaryCritic(PPOLag):
                 self._cfgs.algo_cfgs.max_grad_norm,
             )
         self._actor_critic.binary_critic_optimizer.step()
+
+        # 10/29/24: doing the 'averaging' here
+        values = values.mean(dim=0)
 
         self._logger.store({'Loss/Loss_binary_critic': loss.mean().item(),
                             'Value/binary_critic': values.mean().item(),
