@@ -246,17 +246,24 @@ def eval_metrics(
 
         done = False
         t = 0
+
+        algo = 'on_policy' if 'PPO' in cfgs.algo else 'off_policy'
+
         while not done:
             t += 1
-            # Choose action and compute b(o,a)
-            act, b, num_resamples = agent.step(obs, deterministic=False)
-            with torch.no_grad():
-                barrier = agent.binary_critic.barrier_penalty(obs, act, cfgs.algo_cfgs.barrier_type)
-                qs = agent.reward_critic(obs, act)
+            if algo == 'off_policy':
+                # Choose action and compute b(o,a)
+                act, b, num_resamples = agent.step(obs, deterministic=False)
+                with torch.no_grad():
+                    barrier = agent.binary_critic.barrier_penalty(obs, act, cfgs.algo_cfgs.barrier_type)
+                    qs = agent.reward_critic(obs, act)
 
-            pi1_norm, b_norm = gradients_loss_pi(agent, cfgs, obs, act)
-            ep_metrics['grad_sac'].append(pi1_norm)
-            ep_metrics['grad_b'].append(b_norm)
+                pi1_norm, b_norm = gradients_loss_pi(agent, cfgs, obs, act)
+                ep_metrics['grad_sac'].append(pi1_norm)
+                ep_metrics['grad_b'].append(b_norm)
+            elif algo == 'on_policy':
+                act, qs, qc, b, log_prob = agent.step(obs, deterministic=True)
+                barrier = torch.Tensor([0.])
 
             xy = get_robot_pos(robot)
             ep_metrics['xy'].append(xy)
@@ -271,8 +278,9 @@ def eval_metrics(
             ep_ret += info.get('original_reward', reward)  # .cpu()
             ep_cost += info.get('original_cost', cost)  # .cpu()
             ep_len += 1
-            ep_resamples += int(num_resamples)
-            ep_interventions += int(num_resamples > 0)
+            if algo == 'off_policy':
+                ep_resamples += int(num_resamples)
+                ep_interventions += int(num_resamples > 0)
             done = bool(terminated.item()) or bool(truncated.item())
             if done:
                 pass
@@ -299,7 +307,10 @@ def eval_metrics(
 
         # Compute q(o,a) - G_t (o,a) (the error estimates)
         ret_gamma = discount_cumsum(torch.Tensor(ep_metrics['r']), gamma)
-        q_errors = ep_metrics['qs'].min(axis=1) - np.asarray(ret_gamma)
+        if algo == 'off_policy':
+            q_errors = ep_metrics['qs'].min(axis=1) - np.asarray(ret_gamma)
+        else:
+            q_errors = ep_metrics['qs'] - np.asarray(ret_gamma)
 
         # Only consider estimates that have rewards up to the effective horizon
         eff_horizon = math.ceil(1 / (1-gamma))
@@ -407,7 +418,7 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         ax.legend()
         ax.set_yscale('log')
         # ax.axhline(.5, c='k', linestyle='--')
-        if i == 0:
+        if i == 0 and cfgs.algo == 'off_policy':
             ax.set_title(r"Gradients for $\mathcal{L}_\pi$; barrier="
                          + str(cfgs.algo_cfgs.barrier_type))
 
@@ -441,7 +452,8 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
 
         # q(s,a)
         q = ep_metric.get('qs')
-        q = q.min(axis=1)
+        if cfgs.algo == 'off_policy':
+            q = q.min(axis=1)
         ax = axs[i, 6]
         ax.scatter(np.arange(len(q)), q, c='k', s=mkr_size)
         for t in t_cross:
@@ -449,15 +461,16 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         if i == 0:
             ax.set_title(r'$q(s,a)$) per step')
 
-        # q + penalty
-        ax = axs[i, 7]
-        scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
-        ax.set_yscale('symlog')
-        # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, pos: f'{y:.1e}'))
-        for t in t_cross:
-            ax.axvline(t, c='darkgrey', linewidth=1)
-        if i == 0:
-            ax.set_title(r'$q^\theta(s,a) + B^\theta(s,a)$) per step')
+        if cfgs.algo == 'off_policy':
+            # q + penalty
+            ax = axs[i, 7]
+            scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
+            ax.set_yscale('symlog')
+            # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, pos: f'{y:.1e}'))
+            for t in t_cross:
+                ax.axvline(t, c='darkgrey', linewidth=1)
+            if i == 0:
+                ax.set_title(r'$q^\theta(s,a) + B^\theta(s,a)$) per step')
         return
 
 
@@ -514,18 +527,20 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
         ax.axhline(.5, c='k', linestyle='--')
         # q(s,a)
         q = ep_metric.get('qs')
-        q = q.min(axis=1)
+        if cfgs.algo == 'off_policy':
+            q = q.min(axis=1)
         ax = axs[i, 6]
         ax.scatter(np.arange(len(q)), q, c='k', s=mkr_size)
         if i == 0:
             ax.set_title(r'$q(s,a)$) per step')
 
         # q + penalty
-        log_penalty = ep_metric.get('barrier')
-        ax = axs[i, 7]
-        scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
-        if i == 0:
-            ax.set_title(r'$q^\theta(s,a) + B^\theta(s,a)$) per step')
+        if cfgs.algo == 'off_policy':
+            log_penalty = ep_metric.get('barrier')
+            ax = axs[i, 7]
+            scat = ax.scatter(np.arange(len(q)), q + log_penalty, c='k', s=mkr_size)
+            if i == 0:
+                ax.set_title(r'$q^\theta(s,a) + B^\theta(s,a)$) per step')
 
 
     # fig_height = fig.get_size_inches()[1]
@@ -554,7 +569,12 @@ def plot_all_metrics(list_of_metrics: list[dict[str, Tuple[np.ndarray, ...]]], s
 
     # 08/08/24: add sampled points with PER.
     if len(sampled_positions) > 0:
-        x, y = zip(*sampled_positions)
+        # print(f' sampled positions are:\n{sampled_positions}')
+        if cfgs.algo == 'off_policy':
+            x, y = zip(*sampled_positions)
+        elif cfgs.algo == 'on_policy':
+            # Extract all first and second elements
+            x, y = zip(*[t.squeeze().tolist() for t in sampled_positions])
         ax = axs[0, 9]
         h = ax.hist2d(x, y, cmap='plasma', bins=50)
         fig.colorbar(h[3], ax=ax)
@@ -622,7 +642,7 @@ task = env._env.task
 robot = task.agent
 geoms = env._env.task._geoms
 
-BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/SACLagBinaryCritic-{SafetyPointCircle1-v0}/'
+BASE_DIR = '/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/PPOBinaryCritic-{SafetyPointCircle1-v0}/'
 
 if __name__ == '__main__':
     import os
