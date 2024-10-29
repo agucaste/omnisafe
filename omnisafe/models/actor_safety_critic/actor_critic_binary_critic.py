@@ -381,7 +381,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         obs, act = data['obs'], data['act']
         y = torch.zeros(size=(obs.shape[0],)).to(self.device)
 
-        epochs = cfgs.model_cfgs.binary_critic.axiomatic_data.epochs
+        epochs = 1  # cfgs.model_cfgs.binary_critic.axiomatic_data.epochs
         dataloader = DataLoader(
             dataset=TensorDataset(obs, act, y),
             batch_size=cfgs.algo_cfgs.batch_size,
