@@ -113,6 +113,9 @@ class PPOBCPolicyAdapter(OnlineAdapter):
             logger.store({'Value/reward': value_r})
             logger.store({'Value/binary_critic': value_b})
 
+            # print(f'o: {obs.shape}\na:{act.shape}\nr={reward.shape}\n\next_o{next_obs.shape}'
+            #       f'\nb:{value_b.shape}\nlogp:{logp.shape}')
+
             pos = torch.asarray(self._robot.pos[0:2], dtype=torch.float32).unsqueeze(0)
             buffer.store(
                 obs=obs,

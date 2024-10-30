@@ -116,6 +116,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         self._low, self._high, = self.actor.act_space.low, self.actor.act_space.high
         self._act_dim = self.actor._act_dim
 
+        self.filter_actions = model_cfgs.filter_actions
+
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
         obs_samples = cfgs.model_cfgs.binary_critic.axiomatic_data.o
@@ -438,11 +440,21 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         with torch.no_grad():
             value_r = self.reward_critic(obs)
             value_c = self.cost_critic(obs)
-            action = self.actor.predict(obs, deterministic=deterministic)
+            if not self.filter_actions:
+                action = self.actor.predict(obs, deterministic=deterministic)
+                value_b = self.binary_critic.assess_safety(obs, action)
+            else:
+                o = deepcopy(obs)
+                action, value_b, _, idx = self.pick_safe_action(o,
+                                                                deterministic=deterministic,
+                                                                criterion='safest',
+                                                                mode='on_policy')
+            # print(f'action = {action}\n'
+            #       f'value_b = {value_b}\nshapes: {action.shape}\t{value_b.shape}')
             # action, safety_index, num_resamples = self.pick_safe_action(obs=obs,
             #                                                             deterministic=deterministic)
-            value_b = self.binary_critic.assess_safety(obs, action)
-            log_prob = self.actor.log_prob(action)
+
+            log_prob = self.actor.log_prob(action)[idx]
         return action, value_r[0], value_c[0], value_b, log_prob  # safety_index, num_resamples
 
     def forward(
@@ -545,7 +557,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         # Instead of returning the safety value of the 'taken' action, return the (average) number of
         # 'classified unsafe' actions. This will be fed back to update the _actor_
         # safety_val = safety_val[torch.arange(batch_size), chosen_idx]  # (B, )
-        return a, safety_val, num_resamples
+        return a, safety_val, num_resamples, chosen_idx
 
     def predict(self, obs: torch.Tensor, deterministic: bool):
         """This function is added for the purpose of the 'evaluator', after training.

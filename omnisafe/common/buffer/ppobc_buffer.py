@@ -179,6 +179,10 @@ class PPOBCBuffer(object):  # pylint: disable=too-many-instance-attributes
             pass
         elif self.binary_contribution == 'relu':
             values_b = torch.relu(values_b)
+        elif self.binary_contribution == 'none':
+            # 10/30/24: do nothing
+            values_b = torch.ones_like(values_c)
+
 
 
         discounted_ret = discount_cumsum(rewards, self._on_policy_buffer._gamma)[:-1]
