@@ -101,7 +101,7 @@ class PPOBCBuffer(object):  # pylint: disable=too-many-instance-attributes
     ) -> None:
         """Initialize an instance of :class:`OnPolicyBuffer`."""
         self.binary_contribution = binary_contribution
-        assert self.binary_contribution in ['soft', 'hard', 'relu']
+        assert self.binary_contribution in ['soft', 'hard', 'relu', 'none']
 
         self._on_policy_buffer: OnPolicyBuffer = OnPolicyBuffer(
             obs_space, act_space, size_on,

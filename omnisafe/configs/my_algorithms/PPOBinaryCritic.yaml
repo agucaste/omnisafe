@@ -85,7 +85,7 @@ defaults:
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
     bc_training: off-policy
     # in gae, whether v = v*b (soft) or v = v* round(b) (hard) or v = v*relu(b-1/2)
-    binary_contribution: soft
+    binary_contribution: none
     # binary critics update delay
     binary_critic_delay: 10
   # logger configurations
@@ -150,7 +150,7 @@ defaults:
     # If true, samples many actions (following the actor) and picks safest one.
     filter_actions: True
     # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
-    operator: inequality
+    operator: equality
   # lagrangian configurations
   lagrange_cfgs:
     # Tolerance of constraint violation
