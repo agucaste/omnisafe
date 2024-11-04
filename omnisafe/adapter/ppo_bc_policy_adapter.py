@@ -162,7 +162,12 @@ class PPOBCPolicyAdapter(OnlineAdapter):
                     buffer.finish_path(last_value_r, last_value_c, last_value_b, idx)
 
 
+
                     next_a, *_ = agent.step(next_obs, deterministic=False)
+
+                    "11/04/24: add reset to axiomatic data"
+                    agent.add_to_axiomatic(next_obs, next_a)
+
                     next_b = agent.binary_critic.assess_safety(next_obs, next_a)
                     # print(f'ending epoch with binary critic value {next_b}')
                     if next_b >= .5:

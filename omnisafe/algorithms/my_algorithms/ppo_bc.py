@@ -122,6 +122,7 @@ class PPOBinaryCritic(PPOLag):
             )
             self._sampled_positions.extend(list(pos))
             self._update_binary_critic(obs, act, next_obs, cost, reward)
+            self._actor_critic.mini_batch_on_axiomatic(self._cfgs, self._logger)
 
         # if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
         self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak_binary)
@@ -208,6 +209,7 @@ class PPOBinaryCritic(PPOLag):
                 self._actor_critic.binary_critic.parameters(),
                 self._cfgs.algo_cfgs.max_grad_norm,
             )
+        distributed.avg_grads(self._actor_critic.binary_critic)
         self._actor_critic.binary_critic_optimizer.step()
 
         # 10/29/24: doing the 'averaging' here

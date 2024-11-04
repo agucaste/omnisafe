@@ -89,7 +89,7 @@ defaults:
     # binary critics update delay
     binary_critic_delay: 10
     # the loss for the binary critic, either 'msbe' or 'bce'
-    binary_critic_loss: msbe
+    binary_critic_loss: bce
   # logger configurations
   logger_cfgs:
     # use wandb for logging
@@ -134,7 +134,7 @@ defaults:
       lr: 0.0003
     binary_critic:
       num_critics: 1
-      hidden_sizes: [ 256, 256 ]
+      hidden_sizes: [ 64, 64 ]
       activation: tanh
       lr: 0.00003  # 0.0003
       # The axiomatic dataset

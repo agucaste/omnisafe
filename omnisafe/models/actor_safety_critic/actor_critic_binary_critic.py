@@ -147,13 +147,10 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
         observations = torch.cat(observations, dim=0).to(self.device)
         actions = torch.cat(actions, dim=0).to(self.device)
-        y = torch.zeros(size=(observations.shape[0],)).to(self.device)
-
-        self.axiomatic_dataset = DataLoader(
-            dataset=TensorDataset(observations, actions, y),
-            batch_size=cfgs.algo_cfgs.batch_size,
-            shuffle=True
-        )
+        # y = torch.zeros(size=(observations.shape[0],)).to(self.device)
+        self.axiomatic_data = {'o': observations,
+                               'a': actions
+                               }
 
     def train_from_axiomatic_dataset(self,
                                      cfgs: Config,
@@ -182,13 +179,21 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
 
         """
+        obs, a = self.axiomatic_data['o'], self.axiomatic_data['a']
+        y = torch.zeros(size=(obs.shape[0], )).to(self.device)
+        axiomatic_dataset = DataLoader(
+            dataset=TensorDataset(obs, a, y),
+            batch_size=cfgs.algo_cfgs.batch_size,
+            shuffle=True
+        )
+
         if epochs is None:
             epochs = cfgs.model_cfgs.binary_critic.axiomatic_data.epochs
         losses = []
         # print('Training classifiers...')
         for _ in range(epochs):
             # Get minibatch
-            for o, a, y in self.axiomatic_dataset:
+            for o, a, y in axiomatic_dataset:
                 self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
                 # values = self.binary_critic.forward(o, a)  # one per binary_critic
@@ -214,6 +219,46 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                 logger.store({'Loss/binary_critic_axiomatic': loss.mean().item()})
                 losses.append(loss.mean().item())
         return losses
+
+    def add_to_axiomatic(self, o, a):
+        """
+        appends the observation `o` and action `a` to the axiomatic dataset.
+        These usually come from resets in the environment, which are assumed to be safe.
+
+        Args:
+            o (torch.Tensor): the observation
+            a (torch.Tensor): the action
+        """
+        self.axiomatic_data['o'] = torch.cat((self.axiomatic_data['o'], o), dim=0)
+        self.axiomatic_data['a'] = torch.cat((self.axiomatic_data['a'], a), dim=0)
+        return
+
+    def mini_batch_on_axiomatic(self, cfgs: Config, logger: Logger):
+        """Runs one step of mini-batch sgd on the axiomatic dataset."""
+        size = self.axiomatic_data['o'].shape[0]
+        idxs = torch.randint(0, size, (cfgs.algo_cfgs.batch_size,))
+
+        o = self.axiomatic_data['o'][idxs]
+        a = self.axiomatic_data['a'][idxs]
+        y = torch.zeros(size=(o.shape[0], )).to(self.device)
+
+        self.binary_critic_optimizer.zero_grad()
+        values = self.binary_critic.assess_safety(o, a)
+        loss = nn.functional.binary_cross_entropy(values, y)
+        if cfgs.algo_cfgs.use_critic_norm:
+            for param in self.binary_critic.parameters():
+                loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef
+        loss.backward()
+
+        if cfgs.algo_cfgs.use_max_grad_norm:
+            clip_grad_norm_(
+                self.binary_critic.parameters(),
+                cfgs.algo_cfgs.max_grad_norm,
+            )
+        distributed.avg_grads(self.binary_critic)
+        self.binary_critic_optimizer.step()
+        logger.store({'Loss/binary_critic_axiomatic': loss.mean().item()})
+        pass
 
     def initialize_binary_critic(self, env: OnOffPolicyAdapter, cfgs: Config, logger: Logger) -> None:
         """
