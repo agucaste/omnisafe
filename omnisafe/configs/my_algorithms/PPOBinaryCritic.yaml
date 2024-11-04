@@ -79,7 +79,7 @@ defaults:
     # use cost
     use_cost: True
     # polyak coefficient
-    polyak_binary: .05
+    polyak_binary: 1  # .05
     # whether to use 'hard' or 'soft' labels to train the binary critic.
     bc_training_labels: soft
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
@@ -88,6 +88,8 @@ defaults:
     binary_contribution: none
     # binary critics update delay
     binary_critic_delay: 10
+    # the loss for the binary critic, either 'msbe' or 'bce'
+    binary_critic_loss: msbe
   # logger configurations
   logger_cfgs:
     # use wandb for logging

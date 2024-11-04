@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn.utils.clip_grad import clip_grad_norm_
-from torch.nn.functional import binary_cross_entropy
+from torch.nn.functional import binary_cross_entropy, mse_loss
 
 from collections import deque
 from typing import Any
@@ -172,12 +172,24 @@ class PPOBinaryCritic(PPOLag):
                                    f"{self._actor_critic.algo_cfgs.bc_training_labels}")
         labels = torch.maximum(labels, cost).clamp_max(1)
 
+        """01/11/24:
+        Adding support for different loss functions
+        """
         # 07/05/24
         # Regress each binary critic towards the consensus label.
-        FBCE = FilteredBCELoss(operator=self._cfgs.model_cfgs.operator)
-        loss = sum(
-            FBCE(pred, labels) for pred in values   # self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
-        )
+        if self._cfgs.algo_cfgs.binary_critic_loss == 'bce':
+            FBCE = FilteredBCELoss(operator=self._cfgs.model_cfgs.operator)
+            loss = sum(
+                FBCE(pred, labels) for pred in values   # self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
+            )
+        elif self._cfgs.algo_cfgs.binary_critic_loss == 'msbe':
+            FMSE = FilteredMSELoss(operator=self._cfgs.model_cfgs.operator)
+            loss = sum(
+                FMSE(pred, labels) for pred in values
+            )
+        else:
+            raise (ValueError, f"binary critic loss should be 'bce' or 'msbe'," \
+                               f"not {self._cfgs.algo_cfgs.binary_critic_loss}")
 
         if self._cfgs.algo_cfgs.use_critic_norm:
             for param in self._actor_critic.binary_critic.parameters():
@@ -239,4 +251,27 @@ class FilteredBCELoss(nn.Module):
             loss = binary_cross_entropy(predictions[mask], targets[mask])
         elif self.operator == 'equality':
             loss = binary_cross_entropy(predictions, targets)
+        return loss
+
+class FilteredMSELoss(nn.Module):
+    """
+    A filtered version of the BCELoss. Given predictions p_i and labels y_i,
+    Filters out the transitions that satisfy p_i >= 1/2 and y_i <= 1/2
+
+    """
+    def __init__(self, operator: str, threshold=0.5):
+        super().__init__()
+        if operator not in ['inequality', 'equality']:
+            raise (ValueError, "'operator' for binary critic should be 'inequality' or 'equality,"
+                               f"not {operator}")
+        self.operator = operator
+        self.threshold = threshold
+
+    def forward(self, predictions, targets):
+        if self.operator == 'inequality':
+            # 'mask' is the transitions that are being considered.
+            mask = ~torch.logical_and(predictions >= self.threshold, targets <= self.threshold)
+            loss = mse_loss(predictions[mask], targets[mask])
+        elif self.operator == 'equality':
+            loss = mse_loss(predictions, targets)
         return loss
