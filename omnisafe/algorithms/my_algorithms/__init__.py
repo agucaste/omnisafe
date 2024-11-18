@@ -9,7 +9,8 @@ from omnisafe.algorithms.my_algorithms.sac_lag_dbc_reset import SACLagDiscounted
 from omnisafe.algorithms.my_algorithms.sac_lag2_dbc_reset import SACLag2DiscountedResetBinaryCritic
 from omnisafe.algorithms.my_algorithms.sac_pid_bc_reset import SACPIDResetBinaryCritic
 from omnisafe.algorithms.my_algorithms.ppo_bc import PPOBinaryCritic
+from omnisafe.algorithms.my_algorithms.ppo_bc_on_off import PPOBinaryCriticOnOff
 
 __all__ = ['UniformBinaryCritic', 'TRPOBinaryCritic', 'TRPOPenaltyBinaryCritic', 'TRPOLagBinaryCritic',
            'SACBinaryCritic', 'SACLagBinaryCritic', 'SACLagDiscountedBinaryCritic', 'SACLagDiscountedResetBinaryCritic',
-           'SACLag2DiscountedResetBinaryCritic', 'SACPIDResetBinaryCritic', 'PPOBinaryCritic']
+           'SACLag2DiscountedResetBinaryCritic', 'SACPIDResetBinaryCritic', 'PPOBinaryCritic', 'PPOBinaryCriticOnOff']

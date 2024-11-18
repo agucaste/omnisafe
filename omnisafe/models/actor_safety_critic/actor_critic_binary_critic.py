@@ -121,7 +121,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         # 11/18/24: support for loading models from another run
         if model_cfgs.load_binary_critic_model is not None:
             # Sanity checks
-            assert self.filter_actions and not model_cfgs.train_binary_critic
+            # assert self.filter_actions and not model_cfgs.train_binary_critic
             model_params = torch.load(model_cfgs.load_binary_critic_model)
             self.binary_critic.load_state_dict(model_params['binary_critic'])
 

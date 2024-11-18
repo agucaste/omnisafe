@@ -1,0 +1,169 @@
+# Copyright 2023 OmniSafe Team. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+defaults:
+  # seed for random number generator
+  seed: 0
+  # training configurations
+  train_cfgs:
+    # device to use for training, options: cpu, cuda, cuda:0, cuda:0,1, etc.
+    device: cpu
+    # number of threads for torch
+    torch_threads: 16
+    # number of vectorized environments
+    vector_env_nums: 1
+    # number of parallel agent, similar to a3c
+    parallel: 1
+    # total number of steps to train
+    total_steps: 10000000
+  # algorithm configurations
+  algo_cfgs:
+    # number of steps to update the policy
+    steps_per_epoch: 20000
+    # Size of the off-policy buffer
+    size_off_policy_buffer: 1_000_000
+    # number of iterations to update the policy
+    update_iters: 40
+    # batch size for each iteration
+    batch_size: 64
+    # target kl divergence
+    target_kl: 0.02
+    # entropy coefficient
+    entropy_coef: 0.0
+    # normalize reward
+    reward_normalize: False
+    # normalize cost
+    cost_normalize: False
+    # normalize observation
+    obs_normalize: True
+    # early stop when kl divergence is bigger than target kl
+    kl_early_stop: True
+    # use max gradient norm
+    use_max_grad_norm: True
+    # max gradient norm
+    max_grad_norm: 40.0
+    # use critic norm
+    use_critic_norm: True
+    # critic norm coefficient
+    critic_norm_coef: 0.001
+    # reward discount factor
+    gamma: 0.99
+    # cost discount factor
+    cost_gamma: 0.99
+    # lambda for gae
+    lam: 0.95
+    # lambda for cost gae
+    lam_c: 0.95
+    # clip ratio
+    clip: 0.2
+    # advantage estimation method, options: gae, retrace
+    adv_estimation_method: gae
+    # standardize reward advantage
+    standardized_rew_adv: True
+    # standardize cost advantage
+    standardized_cost_adv: True
+    # penalty coefficient
+    penalty_coef: 0.0
+    # use cost
+    use_cost: True
+    # polyak coefficient
+    polyak_binary: .05
+    # whether to use 'hard' or 'soft' labels to train the binary critic.
+    bc_training_labels: soft
+    # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
+    bc_training: off-policy
+    # in gae, whether v = v*b (soft) or v = v* round(b) (hard) or v = v*relu(b-1/2)
+    binary_contribution: none
+    # binary critics update delay
+    binary_critic_delay: 10
+    # the loss for the binary critic, either 'msbe' or 'bce'
+    binary_critic_loss: bce
+  # logger configurations
+  logger_cfgs:
+    # use wandb for logging
+    use_wandb: True
+    # wandb project name
+    wandb_project: ppo_binary_critic
+    # use tensorboard for logging
+    use_tensorboard: True
+    # save model frequency
+    save_model_freq: 10
+    # save logger path
+    log_dir: "./runs"
+    # save model path
+    window_lens: 100
+  # model configurations
+  model_cfgs:
+    # weight initialization mode
+    weight_initialization_mode: "kaiming_uniform"
+    # actor type, options: gaussian, gaussian_learning
+    actor_type: gaussian_learning
+    # linear learning rate decay
+    linear_lr_decay: True
+    # exploration noise anneal
+    exploration_noise_anneal: False
+    # std upper bound, and lower bound
+    std_range: [0.5, 0.1]
+    # actor network configurations
+    actor:
+      # hidden layer sizes
+      hidden_sizes: [64, 64]
+      # activation function
+      activation: tanh
+      # out_activation: tanh
+      # learning rate
+      lr: 0.0003
+    critic:
+      # hidden layer sizes
+      hidden_sizes: [64, 64]
+      # activation function
+      activation: tanh
+      # learning rate
+      lr: 0.0003
+    binary_critic:
+      num_critics: 1
+      hidden_sizes: [ 64, 64 ]
+      activation: tanh
+      lr: 0.00003  # 0.0003
+      # The axiomatic dataset
+      axiomatic_data:
+        o: 10
+        a: 5
+        epochs: 100
+      # Samples for optimistic iniialization
+      init_samples: 20_000
+        # Binary critic parameters
+    # Maximum resampling for binary critic network
+    max_resamples: 100
+    # Action criterion: either take 'safest' action or 'first_safe'
+    action_criterion: safest
+    # If true, samples many actions (following the actor) and picks safest one.
+    filter_actions: True
+    # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
+    operator: equality
+    # whether to load a pre-trained binary critic or not
+    load_binary_critic_model:
+    # whether to train the critic (if no model is loaded) or not
+    train_binary_critic: True
+  # lagrangian configurations
+  lagrange_cfgs:
+    # Tolerance of constraint violation
+    cost_limit: 25.0
+    # Initial value of lagrangian multiplier
+    lagrangian_multiplier_init: 0.001
+    # Learning rate of lagrangian multiplier
+    lambda_lr: 0.035
+    # Type of lagrangian optimizer
+    lambda_optimizer: "Adam"
