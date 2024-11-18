@@ -118,6 +118,13 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
 
         self.filter_actions = model_cfgs.filter_actions
 
+        # 11/18/24: support for loading models from another run
+        if model_cfgs.load_binary_critic_model is not None:
+            # Sanity checks
+            assert self.filter_actions and not model_cfgs.train_binary_critic
+            model_params = torch.load(model_cfgs.load_binary_critic_model)
+            self.binary_critic.load_state_dict(model_params['binary_critic'])
+
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
         obs_samples = cfgs.model_cfgs.binary_critic.axiomatic_data.o

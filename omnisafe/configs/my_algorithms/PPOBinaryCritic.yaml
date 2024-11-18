@@ -150,9 +150,13 @@ defaults:
     # Action criterion: either take 'safest' action or 'first_safe'
     action_criterion: safest
     # If true, samples many actions (following the actor) and picks safest one.
-    filter_actions: False
+    filter_actions: True
     # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
     operator: equality
+    # whether to load a pre-trained binary critic or not
+    load_binary_critic_model: "/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/PPOBinaryCritic-{SafetyPointCircle1-v0}/seed-002-2024-11-15-10-22-52/torch_save/epoch-330.pt"
+    # whether to train the critic (if no model is loaded) or not
+    train_binary_critic: False
   # lagrangian configurations
   lagrange_cfgs:
     # Tolerance of constraint violation

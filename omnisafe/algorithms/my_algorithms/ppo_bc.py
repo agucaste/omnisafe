@@ -107,25 +107,27 @@ class PPOBinaryCritic(PPOLag):
     def _update(self):
         # Update the binary critic. ->
         # Should be same number batch updates as for the on-policy counterpart.
-        for _ in range(self._cfgs.algo_cfgs.update_iters * self._cfgs.algo_cfgs.steps_per_epoch
-                       // self._cfgs.algo_cfgs.batch_size // self._cfgs.algo_cfgs.binary_critic_delay):
-            data = self._buf.sample_batch()
-            self._update_count += 1
-            obs, act, reward, cost, done, next_obs, pos = (
-                data['obs'],
-                data['act'],
-                data['reward'],
-                data['cost'],
-                data['done'],
-                data['next_obs'],
-                data['pos']
-            )
-            self._sampled_positions.extend(list(pos))
-            self._update_binary_critic(obs, act, next_obs, cost, reward)
-            self._actor_critic.mini_batch_on_axiomatic(self._cfgs, self._logger)
+        if self._cfgs.model_cfgs.train_binary_critic:
+            for _ in range(self._cfgs.algo_cfgs.update_iters * self._cfgs.algo_cfgs.steps_per_epoch
+                           // self._cfgs.algo_cfgs.batch_size // self._cfgs.algo_cfgs.binary_critic_delay):
+                data = self._buf.sample_batch()
+                self._update_count += 1
+                obs, act, reward, cost, done, next_obs, pos = (
+                    data['obs'],
+                    data['act'],
+                    data['reward'],
+                    data['cost'],
+                    data['done'],
+                    data['next_obs'],
+                    data['pos']
+                )
+                self._sampled_positions.extend(list(pos))
 
-        # if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
-        self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak_binary)
+                self._update_binary_critic(obs, act, next_obs, cost, reward)
+                self._actor_critic.mini_batch_on_axiomatic(self._cfgs, self._logger)
+
+            # if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
+            self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak_binary)
 
         # Update the actor & reward/cost critics.
         super()._update()
