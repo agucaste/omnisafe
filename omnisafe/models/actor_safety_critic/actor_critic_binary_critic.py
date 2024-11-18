@@ -488,18 +488,14 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             if not self.filter_actions:
                 action = self.actor.predict(obs, deterministic=deterministic)
                 value_b = self.binary_critic.assess_safety(obs, action)
+                log_prob = self.actor.log_prob(action)
             else:
                 o = deepcopy(obs)
                 action, value_b, _, idx = self.pick_safe_action(o,
                                                                 deterministic=deterministic,
                                                                 criterion='safest',
                                                                 mode='on_policy')
-            # print(f'action = {action}\n'
-            #       f'value_b = {value_b}\nshapes: {action.shape}\t{value_b.shape}')
-            # action, safety_index, num_resamples = self.pick_safe_action(obs=obs,
-            #                                                             deterministic=deterministic)
-
-            log_prob = self.actor.log_prob(action)[idx]
+                log_prob = self.actor.log_prob(action)[idx]
         return action, value_r[0], value_c[0], value_b, log_prob  # safety_index, num_resamples
 
     def forward(

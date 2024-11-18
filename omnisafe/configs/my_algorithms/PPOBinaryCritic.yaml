@@ -150,7 +150,7 @@ defaults:
     # Action criterion: either take 'safest' action or 'first_safe'
     action_criterion: safest
     # If true, samples many actions (following the actor) and picks safest one.
-    filter_actions: True
+    filter_actions: False
     # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
     operator: equality
   # lagrangian configurations
