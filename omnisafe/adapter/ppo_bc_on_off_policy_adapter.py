@@ -77,6 +77,7 @@ class PPOBCOnOffPolicyAdapter(OnlineAdapter):
 
         # Reset environment
         self._current_obs, _ = self.reset()
+        self._steps = 0
 
     def rollout(  # pylint: disable=too-many-locals
         self,
@@ -102,7 +103,7 @@ class PPOBCOnOffPolicyAdapter(OnlineAdapter):
 
         obs = self._current_obs
         # print(f'rolling out for {steps_per_epoch}')
-        for step in range(steps_per_epoch):
+        for step in range(1)  # (steps_per_epoch):
             act, value_r, value_c, value_b, logp = agent.step(obs)
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
 
@@ -131,12 +132,18 @@ class PPOBCOnOffPolicyAdapter(OnlineAdapter):
             )
 
             obs = next_obs
-            # epoch_end = step >= steps_per_epoch - 1
-            epoch_end = False
+            self._current_obs = obs
+            # Update step counter and observation 
+            self._steps += 1
+            epoch_end = self._steps >= steps_per_epoch - 1
             for idx, (done, time_out) in enumerate(zip(terminated, truncated)):
                 if epoch_end or done or time_out:
                     last_value_r = torch.zeros(1)
                     last_value_c = torch.zeros(1)
+                    
+                    last_value_b = torch.zeros(1)
+                    self._steps = 0
+                    
                     if not done:
                         if epoch_end:
                             logger.log(
