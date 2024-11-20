@@ -103,7 +103,7 @@ class PPOBCOnOffPolicyAdapter(OnlineAdapter):
 
         obs = self._current_obs
         # print(f'rolling out for {steps_per_epoch}')
-        for step in range(1)  # (steps_per_epoch):
+        for step in range(1):  # (steps_per_epoch):
             act, value_r, value_c, value_b, logp = agent.step(obs)
             next_obs, reward, cost, terminated, truncated, info = self.step(act)
 
