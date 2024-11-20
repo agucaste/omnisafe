@@ -70,7 +70,7 @@ class SACLagDiscountedBinaryCritic(SACLagBinaryCritic):
         # Regress each binary critic towards the consensus label.
         FBCE = FilteredBCELoss(operator=self._cfgs.model_cfgs.operator)
         loss = sum(
-            FBCE(pred, labels) for pred in self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
+            FBCE(pred, labels) for pred in self._actor_critic.binary_critic.assess_safety(obs, act, consensus=False)
         )
 
         if self._cfgs.algo_cfgs.use_critic_norm:

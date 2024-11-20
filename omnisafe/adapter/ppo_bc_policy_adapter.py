@@ -158,7 +158,8 @@ class PPOBCPolicyAdapter(OnlineAdapter):
                         self._ep_ret[idx] = 0.0
                         self._ep_cost[idx] = 0.0
                         self._ep_len[idx] = 0.0
-
+                    print(f'lvr: {last_value_r}, shape: {last_value_r.shape}')
+                    print(f'lvb: {last_value_b}, shape: {last_value_b.shape}\n')
                     buffer.finish_path(last_value_r, last_value_c, last_value_b, idx)
 
 

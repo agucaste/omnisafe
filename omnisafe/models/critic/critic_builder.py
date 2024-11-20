@@ -57,7 +57,8 @@ class CriticBuilder:
         num_critics: int = 1,
         use_obs_encoder: bool = False,
 
-        max_resamples: int = 100
+        max_resamples: int = 100,
+        consensus: str = 'mean'
     ) -> None:
         """Initialize an instance of :class:`CriticBuilder`."""
         self._obs_space: OmnisafeSpace = obs_space
@@ -69,6 +70,7 @@ class CriticBuilder:
         self._use_obs_encoder: bool = use_obs_encoder
 
         self._max_resamples: int = max_resamples
+        self._consensus: str = consensus
 
     def build_critic(
         self,
@@ -116,7 +118,8 @@ class CriticBuilder:
                 weight_initialization_mode=self._weight_initialization_mode,
                 num_critics=self._num_critics,
                 use_obs_encoder=self._use_obs_encoder,
-                max_resamples=self._max_resamples
+                max_resamples=self._max_resamples,
+                consensus=self._consensus,
             )
 
         raise NotImplementedError(

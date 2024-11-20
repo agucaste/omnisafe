@@ -93,6 +93,7 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             weight_initialization_mode=model_cfgs.weight_initialization_mode,
             num_critics=model_cfgs.binary_critic.num_critics,
             use_obs_encoder=False,
+            consensus=model_cfgs.consensus
         ).build_critic('b')
         # Update the maximum number of resamples.
         self.binary_critic.max_resamples = model_cfgs.max_resamples
@@ -121,9 +122,13 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         # 11/18/24: support for loading models from another run
         if model_cfgs.load_binary_critic_model is not None:
             # Sanity checks
-            # assert self.filter_actions and not model_cfgs.train_binary_critic
+            assert self.filter_actions and not model_cfgs.train_binary_critic
             model_params = torch.load(model_cfgs.load_binary_critic_model)
             self.binary_critic.load_state_dict(model_params['binary_critic'])
+
+        # 11/20/24: if multiple binary critics, how to do consensus.
+        # if model_cfgs.binary_critic.num_critics > 1:
+        #     self.binary_critic.consensus = model_cfgs.binary_critic.consensus
 
     def init_axiomatic_dataset(self, env: OnOffPolicyAdapter, cfgs: Config) -> None:
         # Extracting configurations for clarity
@@ -204,10 +209,12 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                 self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
                 # values = self.binary_critic.forward(o, a)  # one per binary_critic
-                values = self.binary_critic.assess_safety(o, a)
+                values = self.binary_critic.assess_safety(o, a, consensus=False)
                 # print(f' values are {values}')
                 # loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
-                loss = nn.functional.binary_cross_entropy(values, y)
+                # print(f'values has shape {values.shape}, type {values.type}')
+                # print(f'\n\nvalues is {values}')
+                loss = sum(nn.functional.binary_cross_entropy(predictions, y) for predictions in values)
                 # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.binary_critic.parameters():
@@ -250,8 +257,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
         y = torch.zeros(size=(o.shape[0], )).to(self.device)
 
         self.binary_critic_optimizer.zero_grad()
-        values = self.binary_critic.assess_safety(o, a)
-        loss = nn.functional.binary_cross_entropy(values, y)
+        values = self.binary_critic.assess_safety(o, a, consensus=False)
+        loss = sum(nn.functional.binary_cross_entropy(predictions, y) for predictions in values)
         if cfgs.algo_cfgs.use_critic_norm:
             for param in self.binary_critic.parameters():
                 loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef
@@ -334,8 +341,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
                 self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
                 # values = self.binary_critic.forward(o, a)  # one per binary_critic
-                values = self.binary_critic.assess_safety(o, a)
-                loss = nn.functional.binary_cross_entropy(values, y)
+                values = self.binary_critic.assess_safety(o, a, consensus=False)
+                loss = sum(nn.functional.binary_cross_entropy(predictions, y) for predictions in values)
                 # loss = sum([nn.functional.binary_cross_entropy(value, y) for value in values])
                 # This mirrors 'binary_critic.update()' in TRPOBinaryCritic
                 if cfgs.algo_cfgs.use_critic_norm:
@@ -445,8 +452,8 @@ class ActorCriticBinaryCritic(ConstraintActorCritic):
             for o, a, y in dataloader:
                 self.binary_critic_optimizer.zero_grad()
                 # Compute bce loss
-                values = self.binary_critic.assess_safety(o, a)
-                loss = nn.functional.binary_cross_entropy(values, y)
+                values = self.binary_critic.assess_safety(o, a, consensus=False)
+                loss = sum(nn.functional.binary_cross_entropy(pred, y) for pred in values)
                 if cfgs.algo_cfgs.use_critic_norm:
                     for param in self.binary_critic.parameters():
                         loss += param.pow(2).sum() * cfgs.algo_cfgs.critic_norm_coef

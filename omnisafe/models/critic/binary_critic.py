@@ -77,7 +77,8 @@ class BinaryCritic(Critic):
         num_critics: int = 1,
         use_obs_encoder: bool = False,
 
-        max_resamples: int = 100  # Number of 'resamples' when encountering unsafe actions by the actor
+        max_resamples: int = 100,  # Number of 'resamples' when encountering unsafe actions by the actor
+        consensus: str = 'mean',
     ) -> None:
         """Initialize an instance of :class:`QCritic`."""
         super().__init__(
@@ -117,6 +118,8 @@ class BinaryCritic(Critic):
             self.add_module(f'critic_{idx}', critic)
 
         self.max_resamples = max_resamples
+        # How to do consensus if we have multiple critics (actor_critic will specify this on __init__)
+        self.consensus = consensus
 
     def forward(
         self,
@@ -145,7 +148,7 @@ class BinaryCritic(Critic):
                 res.append(torch.squeeze(critic(torch.cat([obs, act], dim=-1)), -1))
         return res
 
-    def assess_safety(self, obs: torch.Tensor, a: torch.Tensor, average: bool = True) -> torch.Tensor:
+    def assess_safety(self, obs: torch.Tensor, a: torch.Tensor, consensus: bool = True) -> torch.Tensor:
         """
         Given an observation, assesses its safety from "safe" (0) to "unsafe" (1).
         Returns a continuous value in [0,1]
@@ -156,7 +159,7 @@ class BinaryCritic(Critic):
         Args:
             obs (torch.tensor): The observation from environments.
             a (torch.tensor): The candidate action by the actor.
-            average (bool): whether to average the result. This is useful if there is more than one critic.
+            consensus (bool): whether to average the result. This is useful if there is more than one critic.
 
         Returns:
             safety_index (torch.tensor): a value in [0, 1], denoting how unsafe the action is.
@@ -166,8 +169,17 @@ class BinaryCritic(Critic):
         # safety_index = torch.stack(self.forward(obs=obs, act=a)).mean(dim=0)
         safety_index = torch.sigmoid(torch.stack(self.forward(obs=obs, act=a)))
         # print(f'safety_index has shape {safety_index.shape}\nvalues: {safety_index}')
-        if average:
-            safety_index = safety_index.mean(dim=0)  # , keepdim=True)
+        if consensus:
+            if self.consensus == 'mean':
+                safety_index = safety_index.mean(dim=0)  # , keepdim=True)
+            elif self.consensus == 'min':
+                # Optimistic -> if one binary critic says safe, then it's safe.
+                safety_index, _ = safety_index.min(dim=0)
+            elif self.consensus == 'max':
+                # Pessimistic -> if one binary critic says unsafe, then it's unsafe.
+                safety_index, _ = safety_index.max(dim=0)
+            else:
+                raise ValueError
         return safety_index
 
     def barrier_penalty(self, obs:torch.Tensor, a:torch.Tensor, barrier_type: str) -> torch.Tensor:

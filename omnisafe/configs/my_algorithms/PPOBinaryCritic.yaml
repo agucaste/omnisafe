@@ -79,7 +79,7 @@ defaults:
     # use cost
     use_cost: True
     # polyak coefficient
-    polyak_binary: 1  # .05
+    polyak_binary: 0.05
     # whether to use 'hard' or 'soft' labels to train the binary critic.
     bc_training_labels: soft
     # Whether to train the barrier with next actions sampled from on-policy or off-policy distribution
@@ -133,7 +133,8 @@ defaults:
       # learning rate
       lr: 0.0003
     binary_critic:
-      num_critics: 1
+      # Number of binary critics
+      num_critics: 2
       hidden_sizes: [ 64, 64 ]
       activation: tanh
       lr: 0.00003  # 0.0003
@@ -144,19 +145,21 @@ defaults:
         epochs: 100
       # Samples for optimistic iniialization
       init_samples: 20_000
-        # Binary critic parameters
+    # Binary critic parameters
+    # How to do consensus (w/ multiple critics) - max, min, mean
+    consensus: mean
     # Maximum resampling for binary critic network
     max_resamples: 100
     # Action criterion: either take 'safest' action or 'first_safe'
     action_criterion: safest
     # If true, samples many actions (following the actor) and picks safest one.
-    filter_actions: True
+    filter_actions: False
     # equality vs inequality in the bellman operator for safety critic (this does filtering on the mini-batch)
     operator: equality
     # whether to load a pre-trained binary critic or not
-    load_binary_critic_model: "/Users/agu/PycharmProjects/omnisafe/examples/my_examples/runs/PPOBinaryCritic-{SafetyPointCircle1-v0}/seed-002-2024-11-15-10-22-52/torch_save/epoch-330.pt"
+    load_binary_critic_model:
     # whether to train the critic (if no model is loaded) or not
-    train_binary_critic: False
+    train_binary_critic: True
   # lagrangian configurations
   lagrange_cfgs:
     # Tolerance of constraint violation

@@ -152,7 +152,7 @@ class PPOBinaryCriticOnOff(PPOLag):
                 self._update_binary_critic(obs, act, next_obs, cost, reward)
                 self._actor_critic.mini_batch_on_axiomatic(self._cfgs, self._logger)
 
-                # if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
+                # if self._update_count % self._cfgs.algo_cfgs.policy_ == 0:
                 self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak_binary)
 
 
@@ -218,7 +218,7 @@ class PPOBinaryCriticOnOff(PPOLag):
         """
 
         self._actor_critic.binary_critic_optimizer.zero_grad()
-        values = self._actor_critic.binary_critic.assess_safety(obs, act, average=False)
+        values = self._actor_critic.binary_critic.assess_safety(obs, act, consensus=False)
 
         with torch.no_grad():
             if self._cfgs.algo_cfgs.bc_training == 'off-policy':
