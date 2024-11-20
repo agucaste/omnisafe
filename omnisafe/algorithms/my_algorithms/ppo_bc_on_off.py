@@ -130,7 +130,7 @@ class PPOBinaryCriticOnOff(PPOLag):
             ):
                 # Roll out environment for one step
                 self._env.rollout(
-                    steps_per_epoch=1,
+                    steps_per_epoch=self._steps_per_epoch,
                     agent=self._actor_critic,
                     buffer=self._buf,
                     logger=self._logger,
